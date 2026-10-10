@@ -2,7 +2,7 @@
 // The front end POSTs {action, token, data} as text/plain (avoids the CORS preflight Apps Script can't answer).
 
 var ADMIN = ['Admin'];
-var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard'];
+var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers'];
 
 // action -> { roles: who may call it (null = any logged-in user), run: function(user, data) }
 var ACTIONS = {
@@ -17,13 +17,16 @@ var ACTIONS = {
   raiseRequest:   { roles: null,  run: function (u, d) { return raiseRequest(u, d); } },
   listRequests:   { roles: null,  run: function () { return listRequests(); } },
   getRequest:     { roles: null,  run: function (u, d) { return getRequest(u, d); } },
-  dashboard:      { roles: null,  run: function () { return dashboard(); } },
+  dashboard:      { roles: null,  run: function (u) { return dashboard(u); } },
   decideRequest:  { roles: ADMIN, run: function (u, d) { return decideRequest(u, d); } },
   issueTicket:    { roles: ADMIN, run: function (u, d) { return issueTicket(u, d); } },
   returnTicket:   { roles: ADMIN, run: function (u, d) { return returnTicket(u, d); } },
   closeIssue:     { roles: ADMIN, run: function (u, d) { return closeIssue(u, d); } },
   maintenance:    { roles: ADMIN, run: function (u, d) { return completeMaintenance(u, d); } },
-  markFound:      { roles: ADMIN, run: function (u, d) { return markFound(u, d); } }
+  markFound:      { roles: ADMIN, run: function (u, d) { return markFound(u, d); } },
+  raiseTransfer:  { roles: null,  run: function (u, d) { return raiseTransfer(u, d); } },
+  decideTransfer: { roles: null,  run: function (u, d) { return decideTransfer(u, d); } },
+  listTransfers:  { roles: null,  run: function (u) { return listTransfers(u); } }
 };
 
 function doPost(e) {

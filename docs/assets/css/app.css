@@ -190,3 +190,17 @@ a.stat.tile { text-decoration: none; }
 .steps li.bad { color: var(--bad); }
 .steps li.bad .dot { background: var(--bad); border-color: var(--bad); }
 textarea { resize: vertical; }
+
+.steps li.now { color: var(--warn); }
+.steps li.now .dot { border-color: var(--warn); background: var(--warn-soft); box-shadow: 0 0 0 4px var(--warn-soft); }
+.warn-text { color: var(--warn); }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.chip { padding: 6px 14px; border-radius: 99px; border: 1px solid var(--border); background: var(--surface); color: var(--text-2); text-decoration: none; font-size: .9rem; }
+.chip.active { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
+@media (max-width: 600px) {
+  .steps { flex-direction: column; gap: 10px; }
+  .steps li { display: grid; grid-template-columns: 20px 1fr; justify-items: start; text-align: left; column-gap: 10px; min-width: 0; }
+  .steps li::before { display: none; }
+  .steps li > :not(.dot) { grid-column: 2; }
+  .steps .dot { grid-row: span 3; }
+}

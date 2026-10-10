@@ -13,7 +13,13 @@ Heater (component by component) and consumables issue, return and tracking for t
   asking for an explanation → close. Returned parts go to "maintenance due" and can't be issued again until maintenance is recorded.
   Daily overdue mails until every part is back. Daily .xlsx export to your company inbox (password columns removed).
 
-**Next:** site transfers with RTG → HOD → RTG Chief + FM Chief approval, consumables, joint calculator.
+- Stage 3: site transfers. FM asks to move a heater that is on site straight to another conveyor (RTGT0001...) with a reason,
+  employee ID and new return date. Approval goes RTG team → RTG HOD → RTG Chief **and** FM Chief (both, either order), with a mail to
+  each approver as their turn comes. FM and RTG both see a tracker of where it is pending. Rejection at any stage tells FM to return the
+  heater. On full approval the ticket, its parts and the return date move to the new conveyor and the extra joint is counted.
+  Give approvers the roles `HOD`, `RTG Chief` and `FM Chief` (with their company email) on the Users page.
+
+**Next:** consumables, joint calculator.
 
 ## Try it without any setup (demo mode)
 

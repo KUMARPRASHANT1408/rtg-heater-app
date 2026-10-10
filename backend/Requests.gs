@@ -101,7 +101,7 @@ function getRequest(user, d) {
   var tk = r.TicketNo ? findOne('Tickets', 'TicketNo', r.TicketNo) : null;
   var items = tk ? readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo; }) : [];
   var issues = tk ? readTable('Issues').filter(function (i) { return i.TicketNo === tk.TicketNo; }) : [];
-  var transfers = tk ? readTable('TransferRequests').filter(function (x) { return x.TicketNo === tk.TicketNo; }) : [];
+  var transfers = tk ? listTransfers(user).filter(function (x) { return x.TicketNo === tk.TicketNo; }) : [];
   var model = findOne('HeaterModels', 'ModelID', r.ModelID);
   var raiser = findOne('Users', 'UserID', r.RaisedBy);
   r.RequestedComponents = parseList_(r.RequestedComponents);
@@ -236,6 +236,12 @@ function returnTicket(admin, d) {
   var patch = { Status: status, ReturnedOn: stillOut ? '' : now };
   if (status === TKT.CLOSED) { patch.ClosedBy = admin.UserID; patch.ClosedOn = now; }
   updateWhere('Tickets', 'TicketNo', tk.TicketNo, patch);
+  if (!stillOut) {
+    // Everything is back, so any move still waiting for approval no longer applies.
+    updateRows('TransferRequests', function (x) {
+      return x.TicketNo === tk.TicketNo && ['Approved', 'Rejected', 'Cancelled'].indexOf(x.Status) < 0 ? { Status: 'Cancelled' } : null;
+    });
+  }
   audit(admin.UserID, 'returnTicket', tk.TicketNo, { returned: returned, stillOut: stillOut, problems: problems.length });
   if (status === TKT.CLOSED) {
     queueMail('TICKET_CLOSED', tk.TicketNo, contacts_(r), '', 'Ticket ' + tk.TicketNo + ' closed',
@@ -294,8 +300,9 @@ function markFound(admin, d) {
 }
 
 // ---------- dashboard ----------
-function dashboard() {
+function dashboard(user) {
   var reqs = listRequests();
+  var transfers = user ? listTransfers(user) : [];
   function count(fn) { return reqs.filter(fn).length; }
   var comps = readTable('Components');
   return {
@@ -305,6 +312,8 @@ function dashboard() {
     overdue: count(function (r) { return r.Overdue; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
     maintenanceDue: comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
-    missing: comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length
+    missing: comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
+    transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
+    transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length
   };
 }

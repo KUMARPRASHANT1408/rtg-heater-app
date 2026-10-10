@@ -43,7 +43,7 @@
   // ---------- Demo backend ----------
   // Runs the real Apps Script backend code in this browser against fake Sheet services,
   // with the data kept in localStorage. Nothing leaves the browser.
-  var DEMO_KEY = 'rtg.demo.v2';
+  var DEMO_KEY = 'rtg.demo.v3';
   var backend = null;
 
   function demoBackend() {
@@ -55,6 +55,9 @@
       backend.loadSampleData();
       setDemoUser('admin', 'admin123', { Name: 'Demo Admin', EmployeeID: '100001' });
       addDemoUser('fm01', 'fm12345', { Name: 'Demo FM User', EmployeeID: '200001', Role: 'Local', Team: 'FM', Department: 'FM Sinter', Email: 'fm01@example.com' });
+      addDemoUser('hod', 'hod12345', { Name: 'Demo RTG HOD', EmployeeID: '100002', Role: 'HOD', Team: 'RTG', Email: 'hod@example.com' });
+      addDemoUser('rchief', 'chief123', { Name: 'Demo RTG Chief', EmployeeID: '100003', Role: 'RTG Chief', Team: 'RTG', Email: 'rchief@example.com' });
+      addDemoUser('fchief', 'chief123', { Name: 'Demo FM Chief', EmployeeID: '200002', Role: 'FM Chief', Team: 'FM', Email: 'fchief@example.com' });
       services.__save();
     }
     return backend;

@@ -40,11 +40,12 @@
     { hash: '#/home', label: 'Home' },
     { hash: '#/heaters', label: 'Find a heater' },
     { hash: '#/requests', label: 'Requests & tickets' },
+    { hash: '#/transfers', label: 'Site transfers' },
     { hash: '#/inventory', label: 'Heater inventory', admin: true },
     { hash: '#/users', label: 'Users', admin: true }
   ];
   var ROUTES = { '#/home': renderHome, '#/heaters': renderHeaters, '#/inventory': renderInventory, '#/users': renderUsers,
-                 '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket };
+                 '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers };
   var ADMIN_ROUTES = ['#/inventory', '#/users'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
@@ -118,7 +119,7 @@
     var tiles = [
       { href: '#/heaters', ico: '🔎', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' },
       { href: '#/requests', ico: '📝', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
-      { href: '#/transfers', ico: '🔁', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval.', soon: true },
+      { href: '#/transfers', ico: '🔁', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
       { href: '#/consumables', ico: '🧪', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.', soon: true }
     ];
     if (isAdmin()) {
@@ -142,7 +143,8 @@
       function t(label, v, f, tone) {
         return '<a class="card stat tile" href="#/requests?f=' + f + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
       }
-      box.innerHTML = t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
+      var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
+      box.innerHTML = mine + t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
         t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
     }).catch(function () { box.remove(); });
   }
@@ -447,9 +449,11 @@
       }).join('') + '</div>';
     }
 
+    html += transferSection(d, status);
     if (isAdmin()) html += adminPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
+    wireTransferSection(d, function (msg) { if (msg) toast(msg); renderTicket(d.ticket.TicketNo); });
   }
 
   function adminPanel(d, status, outstanding) {
@@ -552,6 +556,100 @@
         }).catch(function (err) { showError($('#return-error'), err); busy(btn, false); });
       });
     }
+  }
+
+  // ---------- site transfers ----------
+  var STAGE_LABEL = { 'RTG': 'RTG team', 'HOD': 'RTG HOD', 'RTG Chief': 'RTG Chief', 'FM Chief': 'FM Chief' };
+  var TRANSFER_PILL = { 'Pending RTG': 'warn', 'Pending HOD': 'warn', 'Pending Chiefs': 'warn', 'Approved': 'good', 'Rejected': 'bad', 'Cancelled': 'info' };
+
+  function transferCard(t, withTicketLink) {
+    var rejected = t.Status === 'Rejected';
+    var tracker = '<ol class="steps">' + t.stages.map(function (s) {
+      var waiting = t.waitingWith.indexOf(STAGE_LABEL[s.stage]) >= 0 || t.waitingWith.indexOf(s.stage) >= 0;
+      var cls = s.decision === 'Approved' ? 'done' : s.decision === 'Rejected' ? 'bad' : waiting ? 'now' : '';
+      var sub = s.decision ? s.decision + ' by ' + s.byName + (s.on ? ' · ' + s.on : '') : waiting ? 'Waiting' : rejected || t.Status === 'Cancelled' ? '—' : 'Not yet';
+      return '<li class="' + cls + '"><span class="dot"></span><span>' + esc(STAGE_LABEL[s.stage]) + '</span><span class="small muted">' + esc(sub) + '</span>' +
+        (s.comment ? '<span class="small">“' + esc(s.comment) + '”</span>' : '') + '</li>';
+    }).join('') + '</ol>';
+    var where = t.waitingWith.length ? 'Pending with ' + t.waitingWith.join(' and ') : t.Status === 'Approved' ? 'Fully approved: heater may move' : t.Status === 'Rejected' ? 'Rejected: heater must come back to the RTG Store' : 'Cancelled: heater was returned';
+    return '<div class="card stack transfer" data-tno="' + esc(t.TransferNo) + '">' +
+      '<div class="model-head"><div><h2>' + esc(t.TransferNo) + ' <span class="pill ' + (TRANSFER_PILL[t.Status] || 'info') + '">' + esc(t.Status) + '</span></h2>' +
+      '<div class="kv"><span>' + (withTicketLink ? '<a href="#/ticket/' + esc(t.TicketNo) + '">' + esc(t.TicketNo) + '</a>' : esc(t.TicketNo)) + '</span>' +
+      '<span><b>' + esc(t.FromConveyor) + '</b> → <b>' + esc(t.ToConveyor) + '</b></span><span>Return by <b>' + esc(t.NewExpectedReturn) + '</b></span>' +
+      '<span>Raised by ' + esc(t.RaisedByName) + ' (' + esc(t.EmployeeID) + ') · ' + esc(t.RaisedOn) + '</span></div></div>' +
+      '<b class="' + (t.waitingWith.length ? 'warn-text' : '') + '">' + esc(where) + '</b></div>' +
+      '<p style="margin:0"><span class="muted small">Reason</span><br>' + esc(t.Reason) + '</p>' + tracker +
+      (t.canDecide ? '<form class="stack" data-decide="' + esc(t.TransferNo) + '"><label>Comment (needed to reject)<textarea name="comment" rows="2"></textarea></label>' +
+        '<div class="alert error hidden"></div><div class="actions"><button class="btn secondary" type="button" data-d="reject">Reject</button><button class="btn" type="button" data-d="approve">Approve</button></div></form>' : '') +
+      '</div>';
+  }
+
+  function wireTransferDecisions(root, after) {
+    root.querySelectorAll('form[data-decide]').forEach(function (f) {
+      f.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-d]');
+        if (!b) return;
+        var comment = f.comment.value.trim(), err = $('.alert', f);
+        if (b.dataset.d === 'reject' && !comment) return showError(err, new Error('Write a reason before rejecting.'));
+        busy(b, true);
+        API.call('decideTransfer', { TransferNo: f.dataset.decide, decision: b.dataset.d, comment: comment }).then(function (r) {
+          after(r.status === 'Approved' ? 'Fully approved: the heater may move' : r.status === 'Rejected' ? 'Rejected: FM told to return the heater' : 'Approved and sent to the next approver');
+        }).catch(function (x) { showError(err, x); busy(b, false); });
+      });
+    });
+  }
+
+  function renderTransfers(arg, params) {
+    var show = params.f || 'pending';
+    view.innerHTML = '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs RTG, HOD, RTG Chief and FM Chief approval.</p></div></div><p class="muted">Loading…</p>';
+    API.call('listTransfers').then(function (list) {
+      var filters = { pending: function (t) { return t.waitingWith.length; }, mine: function (t) { return t.canDecide; }, all: function () { return true; } };
+      var rows = list.filter(filters[show] || filters.pending);
+      var mine = list.filter(filters.mine).length;
+      view.innerHTML =
+        '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs RTG, HOD, RTG Chief and FM Chief approval.</p></div>' +
+        '<p class="muted small" style="max-width:280px">To ask for a move, open the ticket of a heater on site and press <b>Move to another site</b>.</p></div>' +
+        '<div class="chips">' + [['pending', 'Waiting for approval'], ['mine', 'Waiting for me' + (mine ? ' (' + mine + ')' : '')], ['all', 'All']].map(function (c) {
+          return '<a class="chip' + (show === c[0] ? ' active' : '') + '" href="#/transfers?f=' + c[0] + '">' + esc(c[1]) + '</a>';
+        }).join('') + '</div>' +
+        '<div class="stack">' + (rows.map(function (t) { return transferCard(t, true); }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
+      wireTransferDecisions(view, function (msg) { toast(msg); renderTransfers(arg, params); });
+    }).catch(handleError);
+  }
+
+  function transferSection(d, status) {
+    var pending = d.transfers.some(function (t) { return t.waitingWith.length; });
+    var canMove = ['Issued', 'Partly returned'].indexOf(status) >= 0 && !pending;
+    if (!d.transfers.length && !canMove) return '';
+    var conv = (state.lookups && state.lookups.conveyors) || [];
+    return '<div class="stack" style="margin-top:16px"><div class="model-head"><h2 style="margin:0">Site transfers</h2>' +
+      (canMove ? '<button class="btn secondary" type="button" id="open-move">Move to another site</button>' : '') + '</div>' +
+      (canMove ? '<form id="form-move" class="card stack hidden"><h2>Request to move this heater</h2>' +
+        '<p class="muted small">A heater should be used for one joint and then maintained. Moving it without maintenance needs approval from the RTG team, RTG HOD, RTG Chief and FM Chief.</p>' +
+        '<div class="row"><label>Move to conveyor<input name="ToConveyor" required list="conv-list2"></label>' +
+        '<label>Your employee ID<input name="EmployeeID" required value="' + esc(state.user.EmployeeID || '') + '"></label>' +
+        '<label>New expected return date<input name="NewExpectedReturn" type="date" required min="' + todayStr() + '"></label></div>' +
+        '<div class="row"><label>Vendor team at new site<input name="VendorTeam" value="' + esc(d.request.VendorTeam) + '"></label>' +
+        '<label>Vendor supervisor<input name="VendorSupervisor" value="' + esc(d.request.VendorSupervisor) + '"></label></div>' +
+        '<label>Reason (why it can\'t come back for maintenance first)<textarea name="Reason" rows="3" required minlength="10"></textarea></label>' +
+        '<div class="alert error hidden" id="move-error"></div><div class="actions"><button class="btn" type="submit">Send for approval</button></div>' +
+        '<datalist id="conv-list2">' + conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">'; }).join('') + '</datalist></form>' : '') +
+      d.transfers.map(function (t) { return transferCard(t, false); }).join('') + '</div>';
+  }
+
+  function wireTransferSection(d, reload) {
+    var open = $('#open-move'), form = $('#form-move');
+    if (open) open.addEventListener('click', function () { form.classList.remove('hidden'); open.classList.add('hidden'); form.ToConveyor.focus(); });
+    if (form) form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var data = formData(form);
+      data.TicketNo = d.ticket.TicketNo;
+      var btn = $('button[type=submit]', form);
+      busy(btn, true);
+      API.call('raiseTransfer', data).then(function (r) { reload('Transfer ' + r.TransferNo + ' sent to the RTG team for approval'); })
+        .catch(function (err) { showError($('#move-error'), err); busy(btn, false); });
+    });
+    wireTransferDecisions(view, reload);
   }
 
   // ---------- heater inventory (admin) ----------
