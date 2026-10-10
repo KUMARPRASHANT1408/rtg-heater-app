@@ -1,4 +1,4 @@
-// RTG Heater Store front end: hash router + views.
+// RTG Heater Management front end: hash router + views.
 (function () {
   var state = { user: null, lookups: null };
   var view = document.getElementById('view');
@@ -84,7 +84,7 @@
     $('#topbar').classList.add('hidden');
     view.innerHTML =
       '<div class="login-wrap"><div class="card login-card">' +
-      '<span class="brand-mark">' + $('.brand .brand-mark').innerHTML + '</span><h1>RTG Heater Store</h1>' +
+      '<span class="brand-mark">' + $('.brand .brand-mark').innerHTML + '</span><h1>RTG Heater Management</h1>' +
       '<p class="muted">Heater and consumables issue, return and tracking.</p>' +
       '<form id="form-login">' +
       '<label>User ID<input name="userId" required autocomplete="username" autofocus></label>' +
@@ -120,6 +120,7 @@
   // ---------- home ----------
   // Line icons (24 px grid, drawn with the text colour) for the home tiles.
   var ICON = {
+    phone: '<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/>',
     search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
     requests: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
     transfer: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
@@ -153,6 +154,7 @@
           (t.soon ? '<span class="soon-tag">Coming next</span>' : '') +
           '<h2>' + esc(t.title) + '</h2><p class="muted small">' + esc(t.text) + '</p></a>';
       }).join('') + '</div>';
+    appCard();
     var head = $('.page-head', view);
     var box = document.createElement('div');
     box.className = 'grid grid-5';
@@ -220,7 +222,7 @@
       update();
     });
     if (params && params.belt) { form.belt.value = params.belt; form.width.value = params.w || ''; }
-    $('#calc-print').addEventListener('click', function () { window.print(); });
+    $('#calc-print').addEventListener('click', function () { if (inAndroidApp) window.AndroidApp.print('Joint calculation'); else window.print(); });
     form.addEventListener('submit', function (e) { e.preventDefault(); });
     function update() {
       clearTimeout(timer);
@@ -1219,10 +1221,7 @@
     var lines = [UPLOAD_COLS.join(','),
       [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Receipt', '10', 'B123', '2027-03-31', '', '', 'Challan 456', ''].join(','),
       [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Issue', '2', '', '', 'FM', 'CNV-205', '', '']. join(',')];
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
-    a.download = 'consumables_upload_template.csv';
-    document.body.appendChild(a); a.click(); a.remove();
+    saveFile('consumables_upload_template.csv', new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
   }
   function openUpload(items, done) {
     var entries = null;
@@ -1469,6 +1468,13 @@
 
   function openChecklist(logNo, btn) {
     busy(btn, true);
+    if (inAndroidApp) {
+      API.call('getChecklist', { LogNo: logNo }).then(function (f) {
+        var ext = { 'application/pdf': '.pdf', 'image/png': '.png', 'image/jpeg': '.jpg' }[f.type] || '';
+        window.AndroidApp.saveFile('checklist_' + logNo + ext, f.type, f.data);
+      }).catch(function (err) { toast(err.message); }).then(function () { busy(btn, false); });
+      return;
+    }
     // Open the tab now (browsers block pop-ups opened after a wait), then fill it.
     var win = window.open('', '_blank');
     API.call('getChecklist', { LogNo: logNo }).then(function (f) {
@@ -1688,6 +1694,61 @@
     state.user = null;
     location.hash = '#/login';
   });
+
+  // ---------- installable app ----------
+  // On a computer or phone browser the site can be installed like an app. The Android app (APK) opens this
+  // same site, so it is always up to date; it only needs a new APK when the Android shell itself changes.
+  var APK_URL = 'https://github.com/KUMARPRASHANT1408/rtg-heater-app/releases/latest/download/RTG-Heater-Management.apk';
+  var installPrompt = null;
+  var inAndroidApp = !!window.AndroidApp;
+  var installed = inAndroidApp || (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installPrompt = e; appCard(); });
+  window.addEventListener('appinstalled', function () { installPrompt = null; installed = true; appCard(); });
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(function () {});
+
+  function appCard() {
+    var grid = $('#view .grid-3');
+    if (!grid) return;
+    var old = $('#get-app'); if (old) old.remove();
+    function show(html) {
+      var d = document.createElement('div');
+      d.id = 'get-app'; d.className = 'card get-app';
+      d.innerHTML = '<span class="ico">' + icon('phone') + '</span><div>' + html + '</div>';
+      grid.after(d);
+    }
+    if (inAndroidApp) {
+      fetch('app-version.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+        if (v.versionCode > Number(window.AndroidApp.versionCode())) {
+          show('<h2>New app version ' + esc(v.versionName) + '</h2><p class="muted small">Download it and tap Install to update. Your login stays.</p>' +
+            '<a class="btn primary" href="' + APK_URL + '">Download update</a>');
+        }
+      }).catch(function () {});
+      return;
+    }
+    if (installed) return;
+    show('<h2>Get the app</h2><p class="muted small">Open RTG Heater Management from your home screen like any app. It updates by itself.</p>' +
+      '<div class="row">' + (installPrompt ? '<button class="btn primary" id="btn-install">Install on this device</button>' : '') +
+      '<a class="btn" href="' + APK_URL + '">Download Android app (APK)</a></div>');
+    var b = $('#btn-install');
+    if (b) b.addEventListener('click', function () {
+      installPrompt.prompt();
+      installPrompt.userChoice.then(function () { installPrompt = null; appCard(); });
+    });
+  }
+
+  // Save a file. Inside the Android app the file goes to Downloads; in a browser it downloads as usual.
+  function saveFile(name, blob) {
+    if (inAndroidApp) {
+      var r = new FileReader();
+      r.onload = function () { window.AndroidApp.saveFile(name, blob.type || 'application/octet-stream', String(r.result).split(',')[1]); };
+      r.readAsDataURL(blob);
+      return;
+    }
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
 
   // ---------- start ----------
   if (API.demo) $('#demo-banner').classList.remove('hidden');

@@ -69,7 +69,7 @@ function dailyExport() {
     SpreadsheetApp.flush();
     var url = 'https://docs.google.com/spreadsheets/d/' + tmp.getId() + '/export?format=xlsx';
     var blob = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } }).getBlob().setName(name + '.xlsx');
-    MailApp.sendEmail({ to: inbox, subject: name, body: 'Daily export from the RTG Heater Store app.', attachments: [blob] });
+    MailApp.sendEmail({ to: inbox, subject: name, body: 'Daily export from the RTG Heater Management app.', attachments: [blob] });
   } finally {
     DriveApp.getFileById(tmp.getId()).setTrashed(true);
   }

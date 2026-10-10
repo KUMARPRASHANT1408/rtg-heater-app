@@ -1,4 +1,4 @@
-# RTG Heater Store
+# RTG Heater Management
 
 Heater (component by component) and consumables issue, return and tracking for the RTG Store.
 

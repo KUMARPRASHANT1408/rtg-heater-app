@@ -24,8 +24,8 @@ function mailHtml_(title, rows, note) {
     '<table style="border-collapse:collapse">' + rows.map(function (r) {
       return '<tr><td style="padding:4px 14px 4px 0;color:#4a5568">' + escHtml_(r[0]) + '</td><td style="padding:4px 0"><b>' + escHtml_(r[1]) + '</b></td></tr>';
     }).join('') + '</table>' +
-    (url ? '<p><a href="' + escHtml_(url) + '">Open RTG Heater Store</a></p>' : '') +
-    '<p style="color:#718096;font-size:12px">Sent automatically by the RTG Heater Store app.</p></div>';
+    (url ? '<p><a href="' + escHtml_(url) + '">Open RTG Heater Management</a></p>' : '') +
+    '<p style="color:#718096;font-size:12px">Sent automatically by the RTG Heater Management app.</p></div>';
 }
 
 function escHtml_(v) {

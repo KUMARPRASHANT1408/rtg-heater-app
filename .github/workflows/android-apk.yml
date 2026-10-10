@@ -1,0 +1,64 @@
+# Builds the Android app (APK) and publishes it on the repository's Releases page.
+# Runs when anything under android/ changes on main, or by hand from the Actions tab ("Run workflow").
+# On a pull request it only checks that the APK builds.
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/android-apk.yml']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android-apk.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build the APK
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RTG_KEYSTORE_BASE64 }}
+          RTG_KEYSTORE_PASSWORD: ${{ secrets.RTG_KEYSTORE_PASSWORD }}
+          RTG_KEY_ALIAS: ${{ secrets.RTG_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/rtg.jks"
+            export RTG_KEYSTORE="$RUNNER_TEMP/rtg.jks"
+          fi
+          gradle --no-daemon assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RTG-Heater-Management-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish it as the latest release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" android/app/build.gradle)
+          cp android/app/build/outputs/apk/release/app-release.apk RTG-Heater-Management.apk
+          tag="app-v$name"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" RTG-Heater-Management.apk --clobber
+          else
+            gh release create "$tag" RTG-Heater-Management.apk --latest \
+              --title "RTG Heater Management $name (Android app)" \
+              --notes "Download RTG-Heater-Management.apk below and open it on the phone to install. The app always shows the live website, so it updates by itself."
+          fi

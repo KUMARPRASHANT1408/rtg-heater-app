@@ -15,7 +15,7 @@ function checklistFolder_() {
   if (id) {
     try { return DriveApp.getFolderById(id); } catch (e) { /* deleted: make a new one */ }
   }
-  var folder = DriveApp.createFolder('RTG Heater Store - maintenance checklists');
+  var folder = DriveApp.createFolder('RTG Heater Management - maintenance checklists');
   if (findOne('Settings', 'Key', 'ChecklistFolderId')) updateWhere('Settings', 'Key', 'ChecklistFolderId', { Value: folder.getId() });
   else appendRow('Settings', { Key: 'ChecklistFolderId', Value: folder.getId(), Notes: 'Google Drive folder for maintenance checklists (made automatically).' });
   return folder;

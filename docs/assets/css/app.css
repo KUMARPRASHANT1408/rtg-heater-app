@@ -91,7 +91,10 @@ body.is-login main { max-width: none; padding: 0; }
 
 .tile { text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 6px; transition: transform .12s, box-shadow .12s; position: relative; }
 .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(15, 27, 45, .12); }
-.tile .ico { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-2); display: grid; place-items: center; font-size: 20px; margin-bottom: 6px; }
+.get-app { display: flex; gap: 14px; align-items: flex-start; margin-top: 16px; }
+.get-app h2 { margin: 0 0 4px; font-size: 1.05rem; }
+.get-app .row { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.get-app .ico, .tile .ico { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-2); display: grid; place-items: center; font-size: 20px; margin-bottom: 6px; }
 .tile.soon { opacity: .6; pointer-events: none; }
 .tile .soon-tag { position: absolute; top: 14px; right: 14px; font-size: .72rem; color: var(--text-3); border: 1px solid var(--border); border-radius: 99px; padding: 1px 8px; }
 
