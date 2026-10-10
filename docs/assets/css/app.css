@@ -91,10 +91,24 @@ body.is-login main { max-width: none; padding: 0; }
 
 .tile { text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 6px; transition: transform .12s, box-shadow .12s; position: relative; }
 .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(15, 27, 45, .12); }
-.get-app { display: flex; gap: 14px; align-items: flex-start; margin-top: 16px; }
-.get-app h2 { margin: 0 0 4px; font-size: 1.05rem; }
-.get-app .row { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
-.get-app .ico, .tile .ico { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-2); display: grid; place-items: center; font-size: 20px; margin-bottom: 6px; }
+.get-app { display: flex; align-items: center; gap: 18px; margin-top: 20px; padding: 18px 22px; border-radius: var(--radius);
+  background: linear-gradient(120deg, #13254a 0%, #1f3a68 60%, #2a4f8a 100%); color: #fff; box-shadow: var(--shadow); position: relative; }
+.get-app .app-icon { width: 56px; height: 56px; border-radius: 14px; flex: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, .18); }
+.get-app .app-icon svg { width: 100%; height: 100%; display: block; }
+.get-app .txt { flex: 1; min-width: 0; }
+.get-app h2 { margin: 0 0 3px; font-size: 1.05rem; color: #fff; }
+.get-app p { margin: 0; color: #c9d6ec; font-size: .9rem; }
+.get-app .acts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.get-app .btn { background: #fff; color: #1f3a68; border: 0; }
+.get-app .btn.ghost { background: transparent; color: #fff; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .45); }
+.get-app .x { position: absolute; top: 6px; right: 8px; background: none; border: 0; color: #c9d6ec; font-size: 20px; line-height: 1; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.get-app .x:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+@media (max-width: 720px) {
+  .get-app { flex-wrap: wrap; padding: 16px; }
+  .get-app .acts { width: 100%; justify-content: stretch; }
+  .get-app .acts .btn { flex: 1; }
+}
+.tile .ico { width: 42px; height: 42px; border-radius: 12px; background: var(--brand-soft); color: var(--brand-2); display: grid; place-items: center; font-size: 20px; margin-bottom: 6px; }
 .tile.soon { opacity: .6; pointer-events: none; }
 .tile .soon-tag { position: absolute; top: 14px; right: 14px; font-size: .72rem; color: var(--text-3); border: 1px solid var(--border); border-radius: 99px; padding: 1px 8px; }
 
@@ -220,11 +234,12 @@ dialog h2 { margin: 0; }
 .mset-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .mset[open] > summary { margin-bottom: 8px; }
 /* Admins have nine menu items; make room on laptop screens. */
-@media (max-width: 1100px) {
+@media (max-width: 1280px) {
   .topbar { flex-wrap: wrap; }
+  .who { margin-left: auto; }
   .nav { order: 3; width: 100%; flex: none; }
 }
-@media (max-width: 1400px) and (min-width: 1101px) {
+@media (max-width: 1440px) and (min-width: 1281px) {
   .who .name { display: none; }
   .nav a { padding: 7px 9px; font-size: .9rem; }
 }
