@@ -103,6 +103,7 @@
         };
         return range;
       },
+      deleteRows: function (start, n) { data.splice(start - 1, n); },
       setFrozenRows: function () {}
     };
     return sheet;
@@ -140,15 +141,34 @@
         DigestAlgorithm: { SHA_256: 'sha256' },
         Charset: { UTF_8: 'utf8' },
         computeDigest: function (alg, s) { return sha256(utf8(String(s))); },
-        base64Encode: base64,
+        base64Encode: function (b) { return b && b.b64 !== undefined ? b.b64 : base64(b); },
+        base64Decode: function (s) { return { b64: String(s) }; },
         getUuid: uuid,
         formatDate: formatDate,
-        newBlob: function (data, type, name) { return { data: data, type: type, name: name }; }
+        newBlob: function (data, type, name) {
+          return { data: data, type: type, name: name, getBytes: function () { return data; }, getContentType: function () { return type; }, getName: function () { return name; } };
+        }
       },
       Session: { getScriptTimeZone: function () { return 'Asia/Kolkata'; } },
       MailApp: { sendEmail: function (m) { mails.push(m); } },
       Logger: { log: function (m) { services.__logs.push(m); } },
       ContentService: { createTextOutput: function (s) { return { s: s, setMimeType: function () { return this; } }; }, MimeType: { JSON: 'json' } },
+      // Drive: files kept in the same saved state (demo checklists are small, compressed images).
+      DriveApp: (function () {
+        state.files = state.files || {};
+        function file(id) {
+          var f = state.files[id];
+          if (!f) throw new Error('File not found');
+          return { getId: function () { return id; }, getName: function () { return f.name; },
+                   getBlob: function () { return services.Utilities.newBlob({ b64: f.b64 }, f.type, f.name); } };
+        }
+        var folder = { getId: function () { return 'demo-folder'; }, createFile: function (blob) {
+          var id = 'f' + Object.keys(state.files).length + '-' + uuid().slice(0, 8);
+          state.files[id] = { name: blob.name, type: blob.type, b64: blob.data.b64 };
+          return file(id);
+        } };
+        return { createFolder: function () { return folder; }, getFolderById: function () { return folder; }, getFileById: file };
+      })(),
       ScriptApp: { getProjectTriggers: function () { return []; } },
       __logs: [],
       __mails: mails,
@@ -158,9 +178,9 @@
     return services;
   }
 
-  var NAMES = ['SpreadsheetApp', 'CacheService', 'LockService', 'Utilities', 'Session', 'MailApp', 'Logger', 'ContentService', 'ScriptApp'];
+  var NAMES = ['SpreadsheetApp', 'CacheService', 'LockService', 'Utilities', 'Session', 'MailApp', 'Logger', 'ContentService', 'ScriptApp', 'DriveApp'];
   var EXPORTS = ['handle', 'setup', 'loadSampleData', 'readTable', 'updateWhere', 'appendRow', 'hashPassword', 'newSalt', 'nextNumber', 'queueMail',
-                 'sendOverdueMails', 'today', 'resetAdminPassword', 'SCHEMA'];
+                 'sendOverdueMails', 'today', 'resetAdminPassword', 'clearTestData', 'SCHEMA'];
 
   // Runs the backend source with the fakes injected; returns its functions.
   function loadBackend(source, services) {

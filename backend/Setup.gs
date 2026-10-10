@@ -39,6 +39,9 @@ function setup() {
     if (!findOne('Settings', 'Key', s[0])) appendRow('Settings', { Key: s[0], Value: s[1], Notes: s[2] });
   });
 
+  // Asks for Google Drive permission the first time, and makes the folder for maintenance checklists.
+  checklistFolder_();
+
   var msg = 'Setup complete.';
   if (!readTable('Users').length) {
     var temp = randomPassword();
@@ -73,4 +76,22 @@ function resetAdminPassword() {
   var msg = 'User ID: admin, temporary password: ' + temp + ' (you will be asked to change it).';
   Logger.log(msg);
   return msg;
+}
+
+// Run this ONCE before going live, after you have finished testing. It deletes every test request, ticket,
+// issue, transfer, consumable request and movement, maintenance log, mail log and audit row, restarts the
+// numbers at 0001, removes SAMPLE consumable batches, and puts every heater part back "In store".
+// It keeps Users, Settings, HeaterModels, ComponentTypes, Components, Conveyors, Departments and Consumables.
+function clearTestData() {
+  ['Requests', 'Tickets', 'TicketItems', 'Issues', 'TransferRequests', 'Approvals', 'ConsumableTransactions', 'ConsumableRequests',
+   'MaintenanceLogs', 'MailOutbox', 'AuditLog', 'Counters'].forEach(function (name) {
+    var sh = sheet_(name);
+    if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+  });
+  var batches = sheet_('ConsumableBatches'), values = batches.getDataRange().getValues(), col = values[0].indexOf('BatchNo');
+  for (var r = values.length - 1; r >= 1; r--) if (String(values[r][col]).indexOf('SAMPLE') === 0) batches.deleteRows(r + 1, 1);
+  updateRows('Components', function (c) {
+    return { Status: STATUS.IN_STORE, CurrentTicket: '', CurrentConveyor: '', MaintenanceStatus: MAINT.OK, JointsSinceMaintenance: 0 };
+  });
+  Logger.log('Test data cleared. Numbers start again at 0001.');
 }

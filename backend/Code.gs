@@ -3,7 +3,8 @@
 
 var ADMIN = ['Admin'];
 var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
-                 'listConsumables', 'consumableDetail', 'listConsumableRequests'];
+                 'listConsumables', 'consumableDetail', 'listConsumableRequests',
+                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist'];
 
 // action -> { roles: who may call it (null = any logged-in user), run: function(user, data) }
 var ACTIONS = {
@@ -38,7 +39,12 @@ var ACTIONS = {
   raiseConsumableRequest:   { roles: null,  run: function (u, d) { return raiseConsumableRequest(u, d); } },
   listConsumableRequests:   { roles: null,  run: function () { return listConsumableRequests(); } },
   decideConsumableRequest:  { roles: ADMIN, run: function (u, d) { return decideConsumableRequest(u, d); } },
-  issueConsumable:          { roles: ADMIN, run: function (u, d) { return issueConsumable(u, d); } }
+  issueConsumable:          { roles: ADMIN, run: function (u, d) { return issueConsumable(u, d); } },
+  maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
+  logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
+  listMaintenanceLogs:      { roles: null,  run: function (u) { return listMaintenanceLogs(u); } },
+  getChecklist:             { roles: null,  run: function (u, d) { return getChecklist(u, d); } },
+  verifyMaintenance:        { roles: ADMIN, run: function (u, d) { return verifyMaintenance(u, d); } }
 };
 
 function doPost(e) {
