@@ -1,7 +1,7 @@
 // Heater search and reference lists.
 
 function heaterData_() {
-  return { models: readTable('HeaterModels'), types: readTable('ComponentTypes'), components: readTable('Components') };
+  return { models: readTable('HeaterModels'), types: readTable('ComponentTypes'), components: readTable('Components'), guide: readTable('HeaterSelection') };
 }
 
 function apiHeaterSearch(data) {
@@ -12,7 +12,8 @@ function apiLookups() {
   return {
     conveyors: readTable('Conveyors'),
     departments: readTable('Departments').map(function (d) { return d.Department; }),
-    models: readTable('HeaterModels')
+    models: readTable('HeaterModels'),
+    guide: readTable('HeaterSelection')
   };
 }
 

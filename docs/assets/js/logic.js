@@ -67,14 +67,49 @@ function modelStats(model, allTypes, allComponents) {
   };
 }
 
+// "ST1000" -> 1000. The selection guide writes steel-cord ratings with an ST prefix.
+function ratingNum_(v) {
+  var m = String(v === undefined ? '' : v).match(/\d+(\.\d+)?/);
+  return m ? Number(m[0]) : 0;
+}
+function splitIds_(v) {
+  return String(v || '').split(/[,;\n]/).map(function (x) { return x.trim(); }).filter(String);
+}
+
+// Rows of the RTG selection guide that cover this belt: same width, same rating, and same plies when both are given.
+function guideMatches(guide, width, rating, plies) {
+  return guide.filter(function (g) {
+    if (num_(g.BeltWidth_mm) !== width || ratingNum_(g.BeltRating) !== rating) return false;
+    return !plies || !g.Plies || num_(g.Plies) === plies;
+  });
+}
+
 // The heater search screen: suitable models for a belt, plus store-wide totals.
+// When the HeaterSelection tab has rows, it decides which heaters suit a belt (exactly as the RTG guide says).
+// Otherwise each model's width/rating range is used.
 function heaterSearch(data, width, rating, plies) {
   width = num_(width); rating = num_(rating); plies = num_(plies);
   var all = data.models.map(function (m) { return modelStats(m, data.types, data.components); });
-  var suitable = all.filter(function (s) { return isSuitable(s.model, width, rating, plies); });
+  var guide = data.guide || [], suitable, guideInfo = null;
+  if (guide.length) {
+    var rows = guideMatches(guide, width, rating, plies), ids = {};
+    rows.forEach(function (g) { splitIds_(g.HeaterIDs).forEach(function (id) { ids[id] = true; }); });
+    suitable = all.filter(function (s) { return ids[s.model.ModelID]; });
+    guideInfo = {
+      matched: rows.map(function (g) { return { rating: g.BeltRating, plies: g.Plies }; }),
+      // When nothing matches, what the guide does list for this width, so the user can pick the right rating.
+      optionsForWidth: guide.filter(function (g) { return num_(g.BeltWidth_mm) === width; })
+        .map(function (g) { return String(g.BeltRating) + (g.Plies ? '/' + g.Plies : ''); }),
+      widths: guide.map(function (g) { return num_(g.BeltWidth_mm); }).filter(function (w, i, a) { return a.indexOf(w) === i; }).sort(function (a, b) { return a - b; }),
+      unknownIds: Object.keys(ids).filter(function (id) { return !all.some(function (s) { return s.model.ModelID === id; }); })
+    };
+  } else {
+    suitable = all.filter(function (s) { return isSuitable(s.model, width, rating, plies); });
+  }
   function sum(list, key) { return list.reduce(function (a, s) { return a + s[key]; }, 0); }
   return {
     query: { width: width, rating: rating, plies: plies },
+    guide: guideInfo,
     totals: {
       heatersInStore: sum(all, 'totalSets'),
       availableAll: sum(all, 'availableSets'),
@@ -134,5 +169,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }

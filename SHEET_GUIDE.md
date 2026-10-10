@@ -49,6 +49,16 @@ The width and rating columns decide which heaters **Find a heater** suggests.
 | CurrentTicket, CurrentConveyor, LastInspected | **Leave empty.** The app fills these. | |
 | Remarks | Optional note | |
 
+### HeaterSelection: your heater selection guide
+One row per belt width and rating, saying which heaters may be used. **When this tab has rows, it alone decides which heaters "Find a heater" suggests** (the width/rating columns in HeaterModels are then only for information).
+| Column | What to put | Example |
+|---|---|---|
+| BeltWidth_mm | Belt width | `1200` |
+| BeltRating | Rating in N/mm, or `ST1000` style for steel cord | `1000` |
+| Plies | Number of plies (empty for steel cord) | `4` |
+| HeaterIDs | The heater numbers allowed, separated by commas, written exactly as the ModelID | `12-EF, 12-GH, 12-IJ` |
+| Notes | Optional | |
+
 ### Conveyors: your conveyor list
 ConveyorName, Area, BeltWidth_mm, BeltRating_Nmm, Plies, Notes. The belt details let the app auto-fill the heater search.
 

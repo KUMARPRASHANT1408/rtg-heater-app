@@ -157,6 +157,11 @@
   }
 
   // ---------- heater search ----------
+  function guideWidths() {
+    var g = (state.lookups && state.lookups.guide) || [], seen = {};
+    return g.map(function (x) { return Number(x.BeltWidth_mm); }).filter(function (w) { if (!w || seen[w]) return false; seen[w] = true; return true; }).sort(function (a, b) { return a - b; });
+  }
+
   function renderHeaters() {
     var conv = (state.lookups && state.lookups.conveyors) || [];
     view.innerHTML =
@@ -165,7 +170,8 @@
       '<label>Conveyor (optional)<select name="conveyor"><option value="">Choose to auto-fill</option>' +
       conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">' + esc(c.ConveyorName) + (c.Area ? ' · ' + esc(c.Area) : '') + '</option>'; }).join('') +
       '</select></label>' +
-      '<label>Belt width (mm)<input name="width" type="number" min="1" required inputmode="numeric"></label>' +
+      '<label>Belt width (mm)<input name="width" type="number" min="1" required inputmode="numeric" list="guide-widths"></label>' +
+      '<datalist id="guide-widths">' + guideWidths().map(function (w) { return '<option value="' + w + '">'; }).join('') + '</datalist>' +
       '<label>Belt rating (N/mm)<input name="rating" type="number" min="1" required inputmode="numeric"></label>' +
       '<label>No. of plies<input name="plies" type="number" min="1" inputmode="numeric"></label>' +
       '<button class="btn" type="submit">Show heaters</button>' +
@@ -202,7 +208,10 @@
       statTile('Ready to issue (all types)', t.availableAll) +
       '</div>';
     if (!r.suitable.length) {
-      el.innerHTML = html + '<div class="card"><h2>No suitable heater</h2><p class="muted">No heater model covers a ' + esc(r.query.width) + ' mm belt at ' + esc(r.query.rating) + ' N/mm' + (r.query.plies ? ' with ' + esc(r.query.plies) + ' plies' : '') + '. Contact the RTG Store.</p></div>';
+      var g = r.guide, hint = '';
+      if (g && g.optionsForWidth.length) hint = '<p>For a ' + esc(r.query.width) + ' mm belt the selection guide lists these ratings: <b>' + g.optionsForWidth.map(esc).join(', ') + '</b>. Check the belt rating and plies.</p>';
+      else if (g) hint = '<p>The selection guide has no entry for a ' + esc(r.query.width) + ' mm belt. It covers: ' + g.widths.join(', ') + ' mm.</p>';
+      el.innerHTML = html + '<div class="card"><h2>No suitable heater</h2><p class="muted">' + (g ? 'The RTG selection guide has no heater' : 'No heater model covers') + ' for a ' + esc(r.query.width) + ' mm belt at ' + esc(r.query.rating) + ' N/mm' + (r.query.plies ? ' with ' + esc(r.query.plies) + ' plies' : '') + '. Contact the RTG Store.</p>' + hint + '</div>';
       return;
     }
     html += '<div class="card"><h2>Suitable heater sets</h2>' +

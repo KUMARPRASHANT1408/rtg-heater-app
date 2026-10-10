@@ -27,6 +27,13 @@ var SCHEMA = {
     "Voltage_V",
     "Notes"
   ],
+  "HeaterSelection": [
+    "BeltWidth_mm",
+    "BeltRating",
+    "Plies",
+    "HeaterIDs",
+    "Notes"
+  ],
   "ComponentTypes": [
     "ModelID",
     "ComponentName",
