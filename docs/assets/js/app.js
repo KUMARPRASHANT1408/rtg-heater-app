@@ -62,7 +62,7 @@
   }
 
   function route() {
-    clearCharts();
+    clearCharts(); stopSim();
     if (!state.user) return renderLogin();
     var h = parseHash();
     if (ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) h = { base: '#/home', arg: '', params: {} };
@@ -172,46 +172,70 @@
   }
 
   // ---------- joint calculator ----------
-  // All the numbers come from JOINT_STD in shared/logic.js (the RTG standard).
+  // All the numbers come from JOINT_STD in shared/logic.js (the RTG standard). Results update as you type.
+  var simTimer = null;
+  function stopSim() { if (simTimer) { clearInterval(simTimer); simTimer = null; } }
+
+  function slider(name, label, min, max, step, value, unit) {
+    return '<label class="slide">' + label + '<span class="slide-row"><input type="range" name="' + name + '_r" min="' + min + '" max="' + max + '" step="' + step + '" value="' + value + '" aria-label="' + esc(label) + '">' +
+      '<input type="number" name="' + name + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + value + '" inputmode="decimal"><span class="unit">' + unit + '</span></span></label>';
+  }
+  // Keep each slider and its number box in step.
+  function linkSliders(root, onChange) {
+    root.querySelectorAll('input[type=range]').forEach(function (r) {
+      var box = root.querySelector('input[name="' + r.name.replace(/_r$/, '') + '"]');
+      r.addEventListener('input', function () { box.value = r.value; onChange(); });
+      box.addEventListener('input', function () { r.value = box.value; onChange(); });
+    });
+  }
+
   function renderCalculator(arg, params) {
+    stopSim();
     var conv = (state.lookups && state.lookups.conveyors) || [];
     view.innerHTML =
-      '<div class="page-head"><div><h1>Joint calculator</h1><p class="muted">Step length, joint length, platen size, pressure and cure time for a hot vulcanised joint.</p></div>' +
+      '<div class="page-head"><div><h1>Joint calculator</h1><p class="muted">Step length, joint length, platen size, pressure and cure time for a hot vulcanised joint. Results update as you type.</p></div>' +
       '<button class="btn secondary" type="button" id="calc-print">Print</button></div>' +
-      '<form class="card stack" id="form-calc">' +
+      '<form class="card stack" id="form-calc" autocomplete="off">' +
       '<div class="row">' +
       '<label>Conveyor (optional)<select name="conveyor"><option value="">Choose to auto-fill</option>' +
       conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">' + esc(c.ConveyorName) + (c.Area ? ' · ' + esc(c.Area) : '') + '</option>'; }).join('') + '</select></label>' +
-      '<label>Belt (type rating/plies)<input name="belt" required placeholder="EP 800/4 or ST1000" autocomplete="off"></label>' +
-      '<label>Belt width (mm)<input name="width" type="number" min="100" required inputmode="numeric"></label>' +
+      '<label>Belt (type rating/plies)<input name="belt" value="EP 800/4" placeholder="EP 800/4 or ST1000"></label>' +
+      '<label>Belt width (mm)<input name="width" type="number" min="100" value="1000" inputmode="numeric"></label>' +
       '</div><div class="row">' +
-      '<label>Top cover (mm)<input name="top" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 6"></label>' +
-      '<label>Bottom cover (mm)<input name="bottom" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 2"></label>' +
-      '<label>Carcass thickness (mm)<input name="carcass" type="number" min="0" step="0.1" inputmode="decimal" placeholder="blank = estimate"></label>' +
+      slider('top', 'Top cover', 0, 20, 0.5, 6, 'mm') + slider('bottom', 'Bottom cover', 0, 12, 0.5, 2, 'mm') +
       '<label>Cooling<select name="cooling"><option value="water">Internal water cooling</option><option value="air">Forced air</option><option value="natural">Natural air</option></select></label>' +
       '</div><details><summary>More settings</summary><div class="row" style="margin-top:10px">' +
+      '<label>Carcass thickness, only if known (mm)<input name="carcass" type="number" min="0" step="0.1" inputmode="decimal" placeholder="Auto: ' + JOINT_STD.carcassPerPly + ' mm per ply"></label>' +
       '<label>Bias angle (degrees)<input name="bias" type="number" min="0" max="45" step="0.1" value="' + JOINT_STD.biasDeg + '"></label>' +
       '<label>Bevel allowance each end (mm)<input name="bevel" type="number" min="0" max="100" step="1" value="0" placeholder="25 - 50 if used"></label>' +
-      '</div></details>' +
-      '<div class="actions"><button class="btn" type="submit">Calculate</button></div></form>' +
-      '<div id="calc-out" class="stack" style="margin-top:20px"></div>';
-    var form = $('#form-calc');
+      '</div></details></form>' +
+      '<div id="calc-msg"></div><div id="calc-out" class="stack" style="margin-top:20px"></div>';
+    var form = $('#form-calc'), timer;
     form.conveyor.addEventListener('change', function () {
       var c = conv.filter(function (x) { return x.ConveyorName === form.conveyor.value; })[0];
       if (!c) return;
       var r = String(c.BeltRating_Nmm || '').toUpperCase();
       form.width.value = c.BeltWidth_mm || '';
       form.belt.value = /^ST/.test(r) ? r : r ? 'EP ' + r + (c.Plies ? '/' + c.Plies : '') : '';
+      update();
     });
     if (params && params.belt) { form.belt.value = params.belt; form.width.value = params.w || ''; }
     $('#calc-print').addEventListener('click', function () { window.print(); });
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var f = formData(form), r;
-      try { r = jointCalc(f); } catch (err) { toast(err.message); return; }
-      r.conveyor = f.conveyor;
-      $('#calc-out').innerHTML = calcResult(r);
-    });
+    form.addEventListener('submit', function (e) { e.preventDefault(); });
+    function update() {
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        var f = formData(form), r;
+        try { r = jointCalc(f); } catch (err) { $('#calc-msg').innerHTML = '<div class="alert info">' + esc(err.message) + '</div>'; return; }
+        $('#calc-msg').innerHTML = '';
+        r.conveyor = f.conveyor;
+        drawCalc(r);
+      }, 120);
+    }
+    linkSliders(form, update);
+    form.addEventListener('input', function (e) { if (e.target.type !== 'range' && e.target.name !== 'top' && e.target.name !== 'bottom') update(); });
+    form.cooling.addEventListener('change', update);
+    update();
   }
 
   function mm(v) { return esc(v) + ' mm'; }
@@ -221,54 +245,208 @@
       return '<tr><td>' + x[0] + (x[2] ? '<div class="small muted">' + esc(x[2]) + '</div>' : '') + '</td><td class="num"><b>' + x[1] + '</b></td></tr>';
     }).join('') + '</tbody></table></div>';
   }
+  function tile(label, value, sub) {
+    return '<div class="card stat"><div class="label">' + esc(label) + '</div><div class="value">' + value + '</div>' + (sub ? '<div class="small muted">' + esc(sub) + '</div>' : '') + '</div>';
+  }
 
-  function calcResult(r) {
+  // Top view of the bias-cut stepped splice and a side view of how the plies of both belt ends interlock.
+  function spliceSvg(r) {
+    var W = 640, pad = 16, Lt = r.totalLength, sc = (W - 2 * pad) / Math.max(Lt, 1);
+    var bh = Math.max(70, Math.min(170, r.width * sc)), top = 28, lb = r.biasLength * sc, ls = r.step.step * sc, bev = r.bevel * sc;
+    var segs = '', i, x0, lines = '';
+    // Step k sits between edge line k and k+1; each edge line runs from the top edge to the bottom edge, offset by the bias.
+    for (i = 0; i < r.steps; i++) {
+      x0 = pad + bev + i * ls;
+      segs += '<polygon class="seg" data-tip="Step ' + (i + 1) + ': ' + r.step.step + ' mm (from ' + (r.bevel + i * r.step.step) + ' to ' + (r.bevel + (i + 1) * r.step.step) + ' mm)" points="' +
+        [x0, top, x0 + ls, top, x0 + ls + lb, top + bh, x0 + lb, top + bh].map(function (v) { return v.toFixed(1); }).join(' ') + '" style="fill:var(--series-1);fill-opacity:' + (0.25 + 0.6 * (i + 1) / Math.max(1, r.steps)).toFixed(2) + '"/>';
+    }
+    for (i = 0; i <= r.steps; i++) { x0 = pad + bev + i * ls; lines += '<line x1="' + x0.toFixed(1) + '" y1="' + top + '" x2="' + (x0 + lb).toFixed(1) + '" y2="' + (top + bh) + '"/>'; }
+    var bx = pad + bev;
+    var biasTri = '<polygon class="seg" data-tip="Bias: ' + r.biasLength + ' mm across the ' + r.width + ' mm width (' + r.bias + '°)" points="' +
+      [bx, top, bx + lb, top + bh, bx, top + bh].map(function (v) { return v.toFixed(1); }).join(' ') + '" style="fill:var(--series-muted);fill-opacity:.6"/>';
+    var dimY = top + bh + 24;
+    function dim(xa, xb, y, text) {
+      return '<line class="dim" x1="' + xa.toFixed(1) + '" y1="' + y + '" x2="' + xb.toFixed(1) + '" y2="' + y + '"/><line class="dim" x1="' + xa.toFixed(1) + '" y1="' + (y - 5) + '" x2="' + xa.toFixed(1) + '" y2="' + (y + 5) + '"/><line class="dim" x1="' + xb.toFixed(1) + '" y1="' + (y - 5) + '" x2="' + xb.toFixed(1) + '" y2="' + (y + 5) + '"/>' +
+        '<text x="' + ((xa + xb) / 2).toFixed(1) + '" y="' + (y - 6) + '" text-anchor="middle">' + text + '</text>';
+    }
+    var topView = '<svg class="splice" viewBox="0 0 ' + W + ' ' + (dimY + 64) + '" role="img" aria-label="Top view of the splice">' +
+      '<text x="' + pad + '" y="16" class="cap">Top view of one belt end, ' + r.width + ' mm wide (belt runs left to right)</text>' +
+      '<rect x="' + pad + '" y="' + top + '" width="' + (W - 2 * pad) + '" height="' + bh + '" class="belt"/>' + biasTri + segs + '<g class="edges">' + lines + '</g>' +
+      dim(bx, bx + lb, dimY, 'Bias ' + r.biasLength + ' mm') +
+      dim(bx + lb, bx + lb + r.steps * ls, dimY + 26, r.steps + ' steps × ' + r.step.step + ' = ' + r.overlapLength + ' mm') +
+      dim(pad, W - pad, dimY + 52, 'Total splice ' + r.totalLength + ' mm') +
+      '</svg>';
+    // Side view: ply j of end A stops after j steps; end B fills the rest. Thickness is exaggerated.
+    var n = r.plies, ph = 14, gap = 3, sideTop = 26, sw = W - 2 * pad, sls = sw / Math.max(1, r.steps + 2), side = '';
+    for (var j = 0; j < n; j++) {
+      var y = sideTop + j * (ph + gap), cut = pad + sls * (j + 1);
+      side += '<rect class="seg" data-tip="Ply ' + (j + 1) + ' of belt end A" x="' + pad + '" y="' + y + '" width="' + (cut - pad).toFixed(1) + '" height="' + ph + '" rx="2" style="fill:var(--series-1)"/>' +
+        '<rect class="seg" data-tip="Ply ' + (j + 1) + ' of belt end B" x="' + (cut + 2).toFixed(1) + '" y="' + y + '" width="' + (W - pad - cut - 2).toFixed(1) + '" height="' + ph + '" rx="2" style="fill:var(--series-2)"/>';
+    }
+    var sideH = sideTop + n * (ph + gap) + 16;
+    var sideView = '<svg class="splice" viewBox="0 0 ' + W + ' ' + (sideH + 14) + '" role="img" aria-label="Side view of the plies">' +
+      '<text x="' + pad + '" y="16" class="cap">Side view: each ply is cut ' + r.step.step + ' mm further (not to scale)</text>' + side +
+      '<g class="legend-svg"><rect x="' + pad + '" y="' + (sideH - 4) + '" width="10" height="10" rx="2" style="fill:var(--series-1)"/><text x="' + (pad + 16) + '" y="' + (sideH + 5) + '">Belt end A</text>' +
+      '<rect x="' + (pad + 110) + '" y="' + (sideH - 4) + '" width="10" height="10" rx="2" style="fill:var(--series-2)"/><text x="' + (pad + 126) + '" y="' + (sideH + 5) + '">Belt end B</text></g></svg>';
+    return topView + sideView;
+  }
+
+  function drawCalc(r) {
+    stopSim(); clearCharts();
     var head = '<div class="card calc-head"><div class="small muted">' + (r.conveyor ? esc(r.conveyor) + ' · ' : '') + 'Belt</div><h2>' +
       esc(r.type) + ' ' + esc(r.rating) + (r.plies ? '/' + esc(r.plies) : '') + ' · ' + mm(r.width) + ' wide</h2></div>';
     var notes = r.notes.length ? '<div class="alert info">' + r.notes.map(esc).join('<br>') + '</div>' : '';
     if (r.kind === 'steel') {
-      return head + notes + (r.band ? '<div class="card"><h2>Steel cord splice (DIN 22131)</h2>' + kvTable([
+      $('#calc-out').innerHTML = head + notes + (r.band ? '<div class="card"><h2>Steel cord splice (DIN 22131)</h2>' + kvTable([
         ['Splice type', r.band.steps + '-step splice'],
         ['Splice length', rng(r.band.splice, ' mm'), 'Range for ST ' + r.band.from + ' – ST ' + r.band.to]
       ]) + '<p class="small muted">Steel cord belts do not use the fabric step formula. Platen, pressure and cure time are not in this standard for steel cord belts.</p></div>' : '');
+      return;
     }
     var c = r.cure, P = r.platen;
-    var joint = '<div class="card"><h2>1. Step and joint length</h2>' + kvTable([
+    var tiles = '<div class="grid grid-4">' +
+      tile('Total splice length', mm(r.totalLength), 'Each belt end') +
+      tile('Steps', r.steps + ' × ' + r.step.step + ' mm', 'Overlap ' + r.overlapLength + ' mm') +
+      (c ? tile('Soak at 145 °C', c.soakUsed + ' min', 'Belt ' + c.thickness + ' mm thick') + tile('Total press time', rng(c.total, ' min'), 'Heat-up + soak + cool-down') : '') + '</div>';
+    var joint = '<div class="card"><h2>1. Splice geometry</h2><p class="small muted">Point at any part of the drawing for its size.</p><div class="splice-wrap" id="splice">' + spliceSvg(r) + '<div class="tip hidden" id="splice-tip"></div></div>' +
+      '<details><summary>All splice numbers</summary>' + kvTable([
       ['Rating of one ply', esc(r.plyRating) + ' N/mm', esc(r.rating) + ' ÷ ' + esc(r.plies) + ' plies'],
       ['Step length (l<sub>s</sub>)', mm(r.step.step), r.step.band + (r.step.range[0] !== r.step.range[1] ? ': standard range ' + r.step.range[0] + ' – ' + r.step.range[1] + ' mm' : '')],
       ['Number of steps', esc(r.steps), esc(r.plies) + ' plies − 1'],
       ['Stepped overlap length (L<sub>v</sub>)', mm(r.overlapLength), r.steps + ' × ' + r.step.step + ' mm'],
-      ['Bias length (l<sub>b</sub>)', mm(r.biasLength), r.width + ' mm × tan ' + r.bias + '°'],
+      ['Bias length (l<sub>b</sub>)', mm(r.biasLength), r.width + ' mm × tan ' + r.bias + '° (about 0.3 × width)']
     ].concat(r.bevel ? [['Bevel allowance', mm(2 * r.bevel), '2 × ' + r.bevel + ' mm']] : []).concat([
-      ['Total splice length (L<sub>tot</sub>)', mm(r.totalLength), 'Belt length to prepare on each end'],
-    ]).concat(r.step.overlap ? [['Minimum pulley face overlap', mm(r.step.overlap)]] : [])) +
+      ['Total splice length (L<sub>tot</sub>)', mm(r.totalLength), 'Belt length to prepare on each end']
+    ]).concat(r.step.overlap ? [['Minimum pulley face overlap', mm(r.step.overlap)]] : [])) + '</details>' +
       '<p class="small">Each belt end: <b>' + r.totalLength + ' mm</b> of carcass lap, cut on a <b>' + r.biasLength + ' mm</b> bias, with <b>' + r.steps + '</b> steps of <b>' + r.step.step + ' mm</b>.</p></div>';
-    var platen = '<div class="card"><h2>2. Platen size</h2>' + kvTable([
-      ['Platen width (W<sub>p</sub>)', rng(P.width, ' mm'), 'Belt width + 75 to 100 mm each side for edge irons'],
-      ['Rhombic platen length', mm(P.rhombic.length), 'Steps + 125 mm each end (range ' + rng(P.rhombic.range, ' mm') + ')'],
-      ['Rectangular platen length', mm(P.rectangular.length), 'Whole splice + 100 mm each end (range ' + rng(P.rectangular.range, ' mm') + ')']
-    ]) + '</div>';
     function f(x) { return rng(x.kN, ' kN') + '<div class="small muted">' + rng(x.t, ' t') + '</div>'; }
-    var press = '<div class="card"><h2>3. Pressure and clamping force</h2>' + kvTable([
+    var platen = '<div class="card"><h2>2. Platen size and clamping force</h2>' + kvTable([
+      ['Platen width (W<sub>p</sub>)', rng(P.width, ' mm'), 'Belt width + 75 to 100 mm each side for edge irons'],
+      ['Rhombic platen length', mm(P.rhombic.length), 'Steps + 100 mm each end = ' + P.rhombic.required + ' mm, in ' + P.rhombic.sections + ' × 500 mm sections'],
+      ['Rectangular platen length', mm(P.rectangular.length), 'Whole splice + 100 mm each end'],
       ['Vulcanising pressure', '0.8 – 1.0 MPa', '8 – 10 bar; 0.8 MPa recommended'],
-      ['Rhombic: platen area', esc(P.rhombic.force.area) + ' m²'],
-      ['Rhombic: total force', f(P.rhombic.force), 'At 0.8 and 1.0 MPa'],
-      ['Rectangular: platen area', esc(P.rectangular.force.area) + ' m²'],
-      ['Rectangular: total force', f(P.rectangular.force), 'At 0.8 and 1.0 MPa'],
+      ['Rhombic: force on ' + esc(P.rhombic.force.area) + ' m²', f(P.rhombic.force), 'At 0.8 and 1.0 MPa'],
+      ['Rectangular: force on ' + esc(P.rectangular.force.area) + ' m²', f(P.rectangular.force), 'At 0.8 and 1.0 MPa'],
       ['Crossbeam stations (30 t each)', P.rhombic.force.beams + ' rhombic · ' + P.rectangular.force.beams + ' rectangular', 'Pairs of crossbeams needed at full pressure']
     ]) + '</div>';
-    var cure = c ? '<div class="card"><h2>4. Cure cycle</h2>' + kvTable([
-      ['Total thickness (T)', mm(c.thickness), 'Carcass ' + c.carcass + (c.carcassEstimated ? ' mm (estimated, ' + JOINT_STD.carcassPerPly + ' mm per ply)' : ' mm') + ' + top ' + c.top + ' + bottom ' + c.bottom],
-      ['Soak time at 145 °C', esc(c.soakUsed) + ' min', '3.0 – 3.2 min per mm: ' + rng(c.soak, ' min')],
-      ['Heat-up to 145 °C', rng(c.rampUp, ' min'), 'At 2.5 – 3.5 °C per minute'],
-      ['Cool down to 60 °C', rng(c.cool, ' min'), { water: 'Internal water cooling', air: 'Forced air cooling', natural: 'Natural air cooling' }[c.cooling]],
-      ['Total press time', rng(c.total, ' min'), 'Heat-up + soak + cool-down']
-    ]) + '<ol class="small calc-steps">' +
-      '<li>Clamp at <b>2 – 3 bar</b> (0.2 – 0.3 MPa) from cold until the platens reach <b>100 °C</b>.</li>' +
-      '<li>Between <b>100 and 110 °C</b>, raise to full pressure: <b>8 – 10 bar</b>.</li>' +
-      '<li>Start the soak timer when every platen thermocouple reads <b>142 °C</b>. Hold <b>145 ± 5 °C</b> for <b>' + c.soakUsed + ' min</b>. <b>Never exceed 150 °C.</b></li>' +
-      '<li>Keep full pressure while cooling. Release only at <b>60 °C or below</b>.</li></ol></div>' : '';
-    return head + notes + joint + platen + press + cure;
+    var cure = c ? '<div class="card stack" id="sim"><h2>3. Cure cycle simulation</h2>' +
+      '<p class="small muted">Belt ' + c.thickness + ' mm = carcass ' + c.carcass + (c.carcassEstimated ? ' mm (estimated from ' + r.plies + ' plies)' : ' mm') + ' + top ' + c.top + ' + bottom ' + c.bottom + ' mm. Soak = 30 + 3.15 × (' + c.thickness + ' − 9.5) = ' + c.soakUsed + ' min. Move the sliders to see how the cycle changes.</p>' +
+      '<form id="sim-form" onsubmit="return false"><div class="row">' +
+      slider('ambient', 'Starting temperature', 10, 50, 1, 30, '°C') + slider('rate', 'Heating rate', 2.5, 3.5, 0.1, 3, '°C/min') +
+      slider('pressure', 'Curing pressure', 8, 10, 0.5, 8, 'bar') + slider('cool', 'Cool-down time', c.cool[0], c.cool[1], 1, Math.round((c.cool[0] + c.cool[1]) / 2), 'min') + '</div></form>' +
+      '<div class="sim-bar"><button class="btn" type="button" id="sim-play">▶ Simulate</button><div class="sim-read" id="sim-read" aria-live="polite"></div></div>' +
+      '<div><div class="small muted">Platen temperature (°C)</div><div class="chart-box" style="height:220px"><canvas id="chart-temp" aria-label="Platen temperature over time"></canvas></div></div>' +
+      '<div><div class="small muted">Pressure (bar)</div><div class="chart-box" style="height:150px"><canvas id="chart-bar" aria-label="Pressure over time"></canvas></div></div>' +
+      '<ol class="small calc-steps" id="sim-steps">' +
+      '<li data-phase="seat">Clamp at <b>2 – 3 bar</b> from cold until the platens reach <b>100 °C</b>.</li>' +
+      '<li data-phase="bump">Between <b>100 and 110 °C</b>, raise to full pressure: <b>8 – 10 bar</b>.</li>' +
+      '<li data-phase="Soak">Start the soak timer when every thermocouple reads <b>142 °C</b>. Hold <b>145 ± 5 °C</b> for <b>' + c.soakUsed + ' min</b>. <b>Never exceed 150 °C.</b></li>' +
+      '<li data-phase="Cool-down">Keep full pressure while cooling. Release only at <b>60 °C or below</b>.</li></ol>' +
+      '<details><summary>Cycle times in the standard</summary>' + kvTable([
+        ['Heat-up to 145 °C', rng(c.rampUp, ' min'), 'At 2.5 – 3.5 °C per minute'],
+        ['Cool down to 60 °C', rng(c.cool, ' min'), { water: 'Internal water cooling', air: 'Forced air cooling', natural: 'Natural air cooling' }[c.cooling]],
+        ['Total press time', rng(c.total, ' min')]
+      ]) + '</details></div>' : '';
+    $('#calc-out').innerHTML = head + notes + tiles + joint + platen + cure;
+    wireSplice();
+    if (c) wireSim(c);
+  }
+
+  function wireSplice() {
+    var box = $('#splice'), tip = $('#splice-tip');
+    box.addEventListener('mousemove', function (e) {
+      var t = e.target.closest('[data-tip]');
+      if (!t) { tip.classList.add('hidden'); return; }
+      var b = box.getBoundingClientRect();
+      tip.textContent = t.getAttribute('data-tip');
+      tip.style.left = Math.min(e.clientX - b.left + 12, b.width - 200) + 'px'; tip.style.top = (e.clientY - b.top + 12) + 'px';
+      tip.classList.remove('hidden');
+    });
+    box.addEventListener('mouseleave', function () { tip.classList.add('hidden'); });
+    box.addEventListener('click', function (e) { var t = e.target.closest('[data-tip]'); if (t) toast(t.getAttribute('data-tip')); });
+  }
+
+  function wireSim(c) {
+    var form = $('#sim-form'), prof, tChart, bChart, cursor = null;
+    var marksPlugin = {
+      id: 'phases',
+      beforeDatasetsDraw: function (ch) {
+        var a = ch.chartArea, x = ch.scales.x, g = ch.ctx, m = prof.marks;
+        [[0, m.soakStart, 'Heat-up'], [m.soakStart, m.coolStart, 'Soak'], [m.coolStart, m.release, 'Cool-down']].forEach(function (p, i) {
+          var x1 = x.getPixelForValue(p[0]), x2 = x.getPixelForValue(p[1]);
+          if (i === 1) { g.fillStyle = cssVar('--surface-2'); g.fillRect(x1, a.top, x2 - x1, a.bottom - a.top); }
+          if (ch.canvas.id === 'chart-temp') { g.fillStyle = cssVar('--text-3'); g.font = '12px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(p[2], (x1 + x2) / 2, a.bottom - 8); }
+        });
+        if (ch.canvas.id === 'chart-temp') {
+          [[150, 'Max 150 °C'], [60, 'Release at 60 °C']].forEach(function (h) {
+            var y = ch.scales.y.getPixelForValue(h[0]);
+            g.save(); g.strokeStyle = cssVar('--text-3'); g.setLineDash([4, 4]); g.lineWidth = 1; g.beginPath(); g.moveTo(a.left, y); g.lineTo(a.right, y); g.stroke(); g.restore();
+            g.fillStyle = cssVar('--text-3'); g.font = '11px system-ui, sans-serif'; g.textAlign = 'right'; g.fillText(h[1], a.right - 4, y - 4);
+          });
+        }
+      },
+      afterDatasetsDraw: function (ch) {
+        if (cursor === null) return;
+        var a = ch.chartArea, x = ch.scales.x.getPixelForValue(cursor), g = ch.ctx;
+        g.save(); g.strokeStyle = cssVar('--text'); g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, a.top); g.lineTo(x, a.bottom); g.stroke(); g.restore();
+      }
+    };
+    function opts(yMin, yMax, unit) {
+      var text2 = cssVar('--text-2'), grid = cssVar('--border');
+      return {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        onHover: function (e, els) { if (simTimer) return; var p = els[0] && prof.points[els[0].index]; showAt(p ? p.t : null, true); },
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          title: function (it) { var p = prof.points[it[0].dataIndex]; return p.t + ' min · ' + p.phase; },
+          label: function (it) { return ' ' + it.formattedValue + ' ' + unit; } } } },
+        scales: {
+          x: { type: 'linear', min: 0, max: prof.total + 1, ticks: { color: text2, stepSize: innerWidth < 600 ? 30 : 10, maxRotation: 0, callback: function (v) { return v + ' min'; } }, grid: { display: false } },
+          y: { min: yMin, max: yMax, ticks: { color: text2, maxTicksLimit: 5 }, grid: { color: grid } }
+        }
+      };
+    }
+    function series(key, color) {
+      return { data: prof.points.map(function (p) { return { x: p.t, y: p[key] }; }), borderColor: color, backgroundColor: color + '22', fill: 'origin', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0, stepped: false };
+    }
+    function build() {
+      var f = formData(form);
+      prof = cureProfile(c, { ambient: f.ambient, rate: f.rate, pressure: f.pressure, coolMin: f.cool });
+      if (tChart) { tChart.destroy(); bChart.destroy(); charts = charts.filter(function (x) { return x !== tChart && x !== bChart; }); }
+      if (!window.Chart) return;
+      tChart = new Chart($('#chart-temp'), { type: 'line', data: { datasets: [series('temp', cssVar('--series-1'))] }, options: opts(0, 160, '°C'), plugins: [marksPlugin] });
+      bChart = new Chart($('#chart-bar'), { type: 'line', data: { datasets: [series('bar', cssVar('--series-2'))] }, options: opts(0, 11, 'bar'), plugins: [marksPlugin] });
+      charts.push(tChart, bChart);
+      showAt(null);
+    }
+    // Readout for one moment of the cycle; also moves the cursor on both charts and highlights the step.
+    function showAt(t, hover) {
+      var read = $('#sim-read'), steps = document.querySelectorAll('#sim-steps li');
+      cursor = t;
+      if (tChart) { tChart.draw(); bChart.draw(); }
+      if (t === null) {
+        read.innerHTML = 'Heat-up <b>' + prof.ramp + ' min</b> · soak <b>' + prof.soak + ' min</b> · cool-down <b>' + prof.cool + ' min</b> · total <b>' + prof.total + ' min</b>';
+        steps.forEach(function (li) { li.classList.remove('now'); });
+        return;
+      }
+      var p = prof.points.filter(function (q) { return q.t <= t; }).pop() || prof.points[0], m = prof.marks;
+      var phase = p.phase === 'Heat-up' ? (p.temp < 100 ? 'seat' : 'bump') : p.phase;
+      var extra = p.phase === 'Soak' ? ' · soak timer <b>' + (p.t - m.soakStart) + ' of ' + prof.soak + ' min</b>' : p.phase === 'Released' ? ' · <b>joint done</b>' : '';
+      read.innerHTML = '<b>' + p.t + ' min</b> · ' + esc(p.phase) + ' · <b>' + p.temp + ' °C</b> · <b>' + p.bar + ' bar</b>' + extra;
+      steps.forEach(function (li) { li.classList.toggle('now', li.getAttribute('data-phase') === phase); });
+    }
+    linkSliders(form, build);
+    $('#sim-play').addEventListener('click', function () {
+      var btn = this;
+      if (simTimer) { stopSim(); btn.textContent = '▶ Simulate'; showAt(null); return; }
+      var t = 0, stepMs = Math.max(40, Math.round(12000 / prof.total));
+      btn.textContent = '■ Stop';
+      simTimer = setInterval(function () {
+        showAt(t);
+        if (++t > prof.total + 1) { stopSim(); btn.textContent = '▶ Simulate again'; }
+      }, stepMs);
+    });
+    build();
   }
 
   // ---------- heater search ----------

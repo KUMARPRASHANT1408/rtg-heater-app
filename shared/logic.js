@@ -163,12 +163,15 @@ var JOINT_STD = {
   minStep: 200, ruleOfThumb: 0.25,          // step >= 0.25 x ply rating, never under 200 mm
   biasDeg: 16.7,                            // bias length = width x tan(angle); 16.7 deg gives 300 mm on a 1000 mm belt
   edgeMargin: [75, 100],                    // platen overhang each side of the belt
-  endClear: [100, 150], endClearUsed: 125,  // rhombic platen overhang at each end of the steps
+  endClear: [100, 150],                     // rhombic platen overhang at each end of the steps (100 used)
+  platenModule: 500,                        // rhombic platens come in 500 mm sections
   rectEndClear: [100, 150],                 // rectangular platen overhang at each end of the full splice
   pressure: [0.8, 1.0],                     // MPa, fabric belts (0.7 - 1.0 allowed, 0.8 recommended)
   beamRating_t: 30,                         // each crossbeam station rated for at least 30 t
   carcassPerPly: 1.125,                     // mm, estimate when the carcass thickness is not measured (4 plies = 4.5 mm)
-  soakPerMm: [3.0, 3.2],                    // minutes per mm of total thickness at 145 C
+  soak: { base: 30, perMm: 3.15, fromMm: 9.5 }, // soak minutes = 30 + 3.15 x (T - 9.5 mm), rounded up
+  cureTemp: 145, startTimerAt: 142, maxTemp: 150, releaseAt: 60, bumpAt: 100,
+  seatPressure: 2.5, fullPressure: [8, 10],  // bar
   rampUp: [35, 45],                         // minutes, ambient to 145 C
   cooling: { water: [15, 25], air: [35, 50], natural: [60, 90] },
   steel: [
@@ -239,7 +242,9 @@ function jointCalc(inp) {
   var Ltot = Lv + 2 * bevel + lb;
 
   var W = [B + 2 * JOINT_STD.edgeMargin[0], B + 2 * JOINT_STD.edgeMargin[1]];
-  var rh = { length: Lv + 2 * JOINT_STD.endClearUsed, range: [Lv + 2 * JOINT_STD.endClear[0], Lv + 2 * JOINT_STD.endClear[1]] };
+  var rhMin = Lv + 2 * JOINT_STD.endClear[0];
+  var rh = { required: rhMin, length: Math.ceil(rhMin / JOINT_STD.platenModule) * JOINT_STD.platenModule, range: [rhMin, Lv + 2 * JOINT_STD.endClear[1]] };
+  rh.sections = rh.length / JOINT_STD.platenModule;
   var re = { length: Ltot + 2 * JOINT_STD.rectEndClear[0], range: [Ltot + 2 * JOINT_STD.rectEndClear[0], Ltot + 2 * JOINT_STD.rectEndClear[1]] };
   function force(Lp) {
     var A = (Lp / 1000) * (W[0] / 1000);
@@ -254,17 +259,40 @@ function jointCalc(inp) {
   var top = num_(inp.top), bottom = num_(inp.bottom), T = round_(carcass + top + bottom, 2), cure = null;
   if (!top && !bottom) notes.push('Enter the top and bottom cover thickness to get the cure time.');
   else {
-    var soak = [Math.ceil(T * JOINT_STD.soakPerMm[0] - 1e-9), Math.ceil(T * JOINT_STD.soakPerMm[1] - 1e-9)];
+    var S = JOINT_STD.soak, soakMin = Math.max(1, Math.ceil(S.base + S.perMm * (T - S.fromMm) - 1e-9));
     var cool = JOINT_STD.cooling[inp.cooling] || JOINT_STD.cooling.water;
-    cure = { thickness: T, carcass: carcass, carcassEstimated: !measured, top: top, bottom: bottom, soak: soak, soakUsed: soak[1],
+    cure = { thickness: T, carcass: carcass, carcassEstimated: !measured, top: top, bottom: bottom, soakUsed: soakMin,
              rampUp: JOINT_STD.rampUp, cooling: inp.cooling && JOINT_STD.cooling[inp.cooling] ? inp.cooling : 'water', cool: cool,
-             total: [JOINT_STD.rampUp[0] + soak[1] + cool[0], JOINT_STD.rampUp[1] + soak[1] + cool[1]] };
+             total: [JOINT_STD.rampUp[0] + soakMin + cool[0], JOINT_STD.rampUp[1] + soakMin + cool[1]] };
   }
   return {
     kind: 'fabric', type: type, rating: rating, plies: plies, width: B, plyRating: plyRating,
     step: st, steps: steps, bevel: bevel, bias: alpha, overlapLength: Lv, biasLength: lb, totalLength: Ltot,
     platen: { width: W, rhombic: rh, rectangular: re }, pressure: JOINT_STD.pressure, cure: cure, notes: notes
   };
+}
+
+// Minute-by-minute press cycle for the simulation chart: heat-up, soak, cool-down under pressure.
+// o: {ambient (C), rate (C per min), pressure (bar), coolMin}. Returns {points: [{t, temp, bar, phase}], marks}.
+function cureProfile(cure, o) {
+  var S = JOINT_STD, amb = num_(o.ambient) || 30, rate = num_(o.rate) || 3, full = num_(o.pressure) || S.fullPressure[0];
+  var cool = num_(o.coolMin) || (cure.cool[0] + cure.cool[1]) / 2;
+  var ramp = Math.max(1, Math.ceil((S.cureTemp - amb) / rate)), soak = cure.soakUsed, pts = [], t;
+  var bumpT = Math.max(0, (S.bumpAt - amb) / rate);
+  for (t = 0; t <= ramp; t++) {
+    var temp = Math.min(S.cureTemp, amb + rate * t);
+    // Seat at low pressure; raise to full pressure over the 100 - 110 C band.
+    var bar = temp < S.bumpAt ? S.seatPressure : Math.min(full, S.seatPressure + (full - S.seatPressure) * (temp - S.bumpAt) / 10);
+    pts.push({ t: t, temp: Math.round(temp), bar: round_(bar, 1), phase: 'Heat-up' });
+  }
+  for (t = ramp + 1; t <= ramp + soak; t++) pts.push({ t: t, temp: S.cureTemp, bar: full, phase: 'Soak' });
+  var c0 = ramp + soak;
+  for (t = c0 + 1; t <= c0 + cool; t++) {
+    pts.push({ t: t, temp: Math.round(S.cureTemp - (S.cureTemp - S.releaseAt) * (t - c0) / cool), bar: full, phase: 'Cool-down' });
+  }
+  var end = c0 + Math.ceil(cool);
+  pts.push({ t: end + 1, temp: S.releaseAt, bar: 0, phase: 'Released' });
+  return { points: pts, marks: { bump: Math.round(bumpT), soakStart: ramp, coolStart: c0, release: end }, ramp: ramp, soak: soak, cool: Math.ceil(cool), total: end };
 }
 
 // Sequential, zero-padded numbers like RTGH0001 or HEATER_0001.
@@ -314,5 +342,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }
