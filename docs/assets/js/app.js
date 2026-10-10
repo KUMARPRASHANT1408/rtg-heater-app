@@ -120,7 +120,6 @@
   // ---------- home ----------
   // Line icons (24 px grid, drawn with the text colour) for the home tiles.
   var ICON = {
-    phone: '<rect x="7" y="2.5" width="10" height="19" rx="2"/><path d="M11 18.5h2"/>',
     search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
     requests: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
     transfer: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
@@ -1721,25 +1720,30 @@
     var grid = $('#view .grid-3');
     if (!grid) return;
     var old = $('#get-app'); if (old) old.remove();
-    function show(html) {
+    function show(title, text, buttons, dismissKey) {
       var d = document.createElement('div');
-      d.id = 'get-app'; d.className = 'card get-app';
-      d.innerHTML = '<span class="ico">' + icon('phone') + '</span><div>' + html + '</div>';
+      d.id = 'get-app'; d.className = 'get-app';
+      d.innerHTML = '<span class="app-icon">' + $('.brand .brand-mark').innerHTML + '</span>' +
+        '<div class="txt"><h2>' + title + '</h2><p>' + text + '</p></div><div class="acts">' + buttons + '</div>' +
+        (dismissKey ? '<button class="x" type="button" title="Hide" aria-label="Hide">×</button>' : '');
       grid.after(d);
+      var x = $('.x', d);
+      if (x) x.addEventListener('click', function () { try { localStorage.setItem(dismissKey, '1'); } catch (e) {} d.remove(); });
     }
     if (inAndroidApp) {
       fetch('app-version.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
         if (v.versionCode > Number(window.AndroidApp.versionCode())) {
-          show('<h2>New app version ' + esc(v.versionName) + '</h2><p class="muted small">Download it and tap Install to update. Your login stays.</p>' +
-            '<a class="btn primary" href="' + APK_URL + '">Download update</a>');
+          show('New app version ' + esc(v.versionName), 'Download it and tap Install to update. Your login stays.',
+            '<a class="btn" href="' + APK_URL + '">Download update</a>');
         }
       }).catch(function () {});
       return;
     }
     if (installed) return;
-    show('<h2>Get the app</h2><p class="muted small">Open RTG Heater Management from your home screen like any app. It updates by itself.</p>' +
-      '<div class="row">' + (installPrompt ? '<button class="btn primary" id="btn-install">Install on this device</button>' : '') +
-      '<a class="btn" href="' + APK_URL + '">Download Android app (APK)</a></div>');
+    try { if (localStorage.getItem('rtg-hide-get-app')) return; } catch (e) {}
+    show('RTG Heater Management app', 'Open it from your home screen like any app. It updates by itself.',
+      (installPrompt ? '<button class="btn" id="btn-install" type="button">Install app</button>' : '') +
+      '<a class="btn ' + (installPrompt ? 'ghost' : '') + '" href="' + APK_URL + '">Android APK</a>', 'rtg-hide-get-app');
     var b = $('#btn-install');
     if (b) b.addEventListener('click', function () {
       installPrompt.prompt();
