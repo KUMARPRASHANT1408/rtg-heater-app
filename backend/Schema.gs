@@ -95,7 +95,10 @@ var SCHEMA = {
     "ReturnedOn",
     "ClosedBy",
     "ClosedOn",
-    "LastOverdueMail"
+    "LastOverdueMail",
+    "ReturnRequestedBy",
+    "ReturnRequestedOn",
+    "ReturnNote"
   ],
   "TicketItems": [
     "TicketNo",
@@ -107,7 +110,8 @@ var SCHEMA = {
     "QtyIn",
     "ConditionIn",
     "ReturnedOn",
-    "Remarks"
+    "Remarks",
+    "ReturnDeclaredOn"
   ],
   "Issues": [
     "IssueNo",
@@ -119,7 +123,11 @@ var SCHEMA = {
     "FMExplanation",
     "ClosedBy",
     "ClosedOn",
-    "Status"
+    "Status",
+    "FMActionPlan",
+    "ExplainedBy",
+    "ExplainedOn",
+    "ClosingRemark"
   ],
   "TransferRequests": [
     "TransferNo",

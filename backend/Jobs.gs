@@ -32,6 +32,8 @@ function sendOverdueMails() {
     if ([TKT.ISSUED, TKT.PARTLY, TKT.ISSUE].indexOf(tk.Status) < 0) return;
     if (!outstanding[tk.TicketNo] || !isOverdue(tk.ExpectedReturnDate, t)) return;
     if (String(tk.LastOverdueMail).slice(0, 10) === t) return;
+    // FM has handed everything back; it is waiting for RTG inspection, not late on site.
+    if (outstanding[tk.TicketNo].every(function (i) { return i.ReturnDeclaredOn; })) return;
     var r = reqs[tk.RequestNo] || {};
     var days = daysBetween(tk.ExpectedReturnDate, t);
     queueMail('OVERDUE', tk.TicketNo, [to, contacts_(r)].filter(String).join(','), cc,

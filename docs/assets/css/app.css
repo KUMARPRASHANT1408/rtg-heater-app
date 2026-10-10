@@ -204,3 +204,9 @@ textarea { resize: vertical; }
   .steps li > :not(.dot) { grid-column: 2; }
   .steps .dot { grid-row: span 3; }
 }
+.cons-card { display: grid; gap: 10px; align-content: start; }
+.cons-card h2 { font-size: 1.02rem; }
+.cons-stock { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.pill.none { background: var(--border); color: var(--text-2); }
+dialog .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+dialog h2 { margin: 0; }

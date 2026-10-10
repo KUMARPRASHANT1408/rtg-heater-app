@@ -39,13 +39,15 @@
   var NAV = [
     { hash: '#/home', label: 'Home' },
     { hash: '#/heaters', label: 'Find a heater' },
-    { hash: '#/requests', label: 'Requests & tickets' },
-    { hash: '#/transfers', label: 'Site transfers' },
-    { hash: '#/inventory', label: 'Heater inventory', admin: true },
+    { hash: '#/requests', label: 'Requests' },
+    { hash: '#/transfers', label: 'Transfers' },
+    { hash: '#/consumables', label: 'Consumables' },
+    { hash: '#/inventory', label: 'Inventory', admin: true },
     { hash: '#/users', label: 'Users', admin: true }
   ];
   var ROUTES = { '#/home': renderHome, '#/heaters': renderHeaters, '#/inventory': renderInventory, '#/users': renderUsers,
-                 '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers };
+                 '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers,
+                 '#/consumables': renderConsumables, '#/consumable': renderConsumable };
   var ADMIN_ROUTES = ['#/inventory', '#/users'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
@@ -63,7 +65,7 @@
     if (!state.user) return renderLogin();
     var h = parseHash();
     if (ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) h = { base: '#/home', arg: '', params: {} };
-    renderChrome(h.base === '#/ticket' || h.base === '#/request' ? '#/requests' : h.base);
+    renderChrome(h.base === '#/ticket' || h.base === '#/request' ? '#/requests' : h.base === '#/consumable' ? '#/consumables' : h.base);
     (ROUTES[h.base] || renderHome)(h.arg, h.params);
   }
 
@@ -120,7 +122,7 @@
       { href: '#/heaters', ico: '🔎', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' },
       { href: '#/requests', ico: '📝', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
       { href: '#/transfers', ico: '🔁', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
-      { href: '#/consumables', ico: '🧪', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.', soon: true }
+      { href: '#/consumables', ico: '🧪', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
     ];
     if (isAdmin()) {
       tiles.splice(1, 0, { href: '#/inventory', ico: '🧰', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
@@ -145,7 +147,9 @@
       }
       var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
       box.innerHTML = mine + t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
-        t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
+        t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad') +
+        (d.consumablePending ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">Consumable requests</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
+        (d.consumableAlerts ? '<a class="card stat tile" href="#/consumables"><div class="label">Consumables low or expiring</div><div class="value" style="color:var(--bad)">' + d.consumableAlerts + '</div></a>' : '');
     }).catch(function () { box.remove(); });
   }
 
@@ -401,6 +405,8 @@
     ];
     if (r.Status !== 'Rejected') {
       list.push({ label: 'Issued', done: !!(tk && tk.IssuedOn), when: tk && tk.IssuedOn });
+      var handed = (d.items || []).filter(function (i) { return i.ReturnDeclaredOn; }).map(function (i) { return i.ReturnDeclaredOn; }).sort();
+      list.push({ label: 'Handed back by FM', done: handed.length > 0 || !!(tk && tk.ReturnedOn), when: handed[handed.length - 1] });
       list.push({ label: 'Returned', done: !!(tk && tk.ReturnedOn), when: tk && tk.ReturnedOn, bad: tk && tk.Status === 'Returned with issue' });
       list.push({ label: 'Closed', done: !!(tk && tk.Status === 'Closed'), when: tk && tk.ClosedOn });
     }
@@ -430,7 +436,7 @@
         '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th class="num">Qty</th><th>Returned</th></tr></thead><tbody>' +
         d.items.map(function (i) {
           var cond = i.ConditionIn;
-          var pill = !cond ? '<span class="pill info">On site</span>' : cond === 'OK' ? '<span class="pill good">OK</span>' : '<span class="pill bad">' + esc(cond) + '</span>';
+          var pill = !cond ? (i.ReturnDeclaredOn ? '<span class="pill warn">Handed back, to inspect</span>' : '<span class="pill info">On site</span>') : cond === 'OK' ? '<span class="pill good">OK</span>' : '<span class="pill bad">' + esc(cond) + '</span>';
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (i.Remarks ? '<div class="small muted">' + esc(i.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(i.QtyOut) + '</td><td>' + pill + '</td></tr>';
         }).join('') + '</tbody></table></div>' :
         '<div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
@@ -441,19 +447,52 @@
       html += '<div class="card stack" style="margin-top:16px"><h2>Issues</h2>' + d.issues.map(function (i) {
         var parts = [];
         try { parts = JSON.parse(i.AffectedComponents || '[]'); } catch (e) {}
-        return '<div class="issue"><div class="model-head"><b>' + esc(i.IssueNo) + '</b>' + (i.Status === 'Closed' ? '<span class="pill good">Closed</span>' : '<span class="pill bad">Open</span>') + '</div>' +
+        var pill = i.Status === 'Closed' ? '<span class="pill good">Closed</span>' : i.Status === 'Explained' ? '<span class="pill warn">Explained, RTG to review</span>' : '<span class="pill bad">Waiting for FM explanation</span>';
+        var body = '<div class="issue"><div class="model-head"><b>' + esc(i.IssueNo) + '</b>' + pill + '</div>' +
           '<p>' + esc(i.Description) + '</p><p class="small muted">' + parts.map(function (p) { return esc(p.id) + ' ' + esc(p.name) + ': ' + esc(p.result) + (p.remarks ? ' (' + esc(p.remarks) + ')' : ''); }).join(' · ') + '</p>' +
-          (i.FMExplanation ? '<p class="small"><b>FM explanation:</b> ' + esc(i.FMExplanation) + '</p>' : '') +
-          (isAdmin() && i.Status !== 'Closed' ? '<form class="row" data-issue="' + esc(i.IssueNo) + '"><label>FM explanation received<textarea name="explanation" rows="2" required></textarea></label><div><button class="btn" type="submit">Record &amp; close issue</button></div></form>' : '') +
-          '</div>';
+          (i.FMExplanation ? '<p class="small"><b>What happened (FM):</b> ' + esc(i.FMExplanation) + '</p>' : '') +
+          (i.FMActionPlan ? '<p class="small"><b>Action FM will take:</b> ' + esc(i.FMActionPlan) + '</p>' : '') +
+          (i.ClosingRemark ? '<p class="small"><b>RTG remark:</b> ' + esc(i.ClosingRemark) + '</p>' : '');
+        if (i.Status === 'Open' && !isAdmin() && fmCanAct(d)) {
+          body += '<form class="stack" data-explain="' + esc(i.IssueNo) + '"><label>What happened<textarea name="explanation" rows="2" required></textarea></label>' +
+            '<label>What action you will take<textarea name="actionPlan" rows="2" required></textarea></label>' +
+            '<div class="actions"><button class="btn" type="submit">Send explanation to RTG</button></div></form>';
+        }
+        if (isAdmin() && i.Status === 'Explained') {
+          body += '<form class="row" data-issue="' + esc(i.IssueNo) + '"><label>Your remark (optional)<input name="remark"></label><div><button class="btn" type="submit">Accept &amp; close</button></div></form>';
+        }
+        if (isAdmin() && i.Status === 'Open') {
+          body += '<details><summary class="small">FM explained outside the app? Type it in</summary><form class="row" data-issue="' + esc(i.IssueNo) + '" style="margin-top:8px">' +
+            '<label>FM explanation<textarea name="explanation" rows="2" required></textarea></label><div><button class="btn secondary" type="submit">Record &amp; close</button></div></form></details>';
+        }
+        return body + '</div>';
       }).join('') + '</div>';
     }
 
     html += transferSection(d, status);
     if (isAdmin()) html += adminPanel(d, status, outstanding);
+    else html += fmReturnPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
     wireTransferSection(d, function (msg) { if (msg) toast(msg); renderTicket(d.ticket.TicketNo); });
+  }
+
+  function fmCanAct(d) {
+    return isAdmin() || state.user.Team === 'FM' || d.request.RaisedBy === state.user.UserID;
+  }
+
+  // FM hands the heater back: ticks what they are returning; RTG inspects it next.
+  function fmReturnPanel(d, status, outstanding) {
+    var open = outstanding.filter(function (i) { return !i.ReturnDeclaredOn; });
+    if (!fmCanAct(d) || !open.length || ['Issued', 'Partly returned', 'Returned with issue'].indexOf(status) < 0) return '';
+    return '<div class="card stack" style="margin-top:16px"><h2>Return the heater</h2>' +
+      '<p class="muted small">Tick the parts you are handing back to the RTG Store. Untick anything still on site. RTG will then inspect each part.</p>' +
+      '<form id="form-handback" class="stack"><div class="table-wrap"><table><thead><tr><th style="width:40px"></th><th>Component ID</th><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
+      open.map(function (i) {
+        return '<tr><td><input type="checkbox" checked data-hb="' + esc(i.ComponentID) + '" style="min-height:auto"></td><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + '</td><td class="num">' + esc(i.QtyOut) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<label>Note for RTG (optional)<input name="note" placeholder="e.g. joint completed, one cable still at site"></label>' +
+      '<div class="alert error hidden" id="handback-error"></div><div class="actions"><button class="btn" type="submit">Hand back to RTG Store</button></div></form></div>';
   }
 
   function adminPanel(d, status, outstanding) {
@@ -483,12 +522,13 @@
     }
     if (outstanding.length && ['Issued', 'Partly returned', 'Returned with issue'].indexOf(status) >= 0) {
       return '<div class="card stack" style="margin-top:16px"><h2>Return &amp; inspection</h2>' +
-        '<p class="muted small">Check every component. Anything not marked comes back later and keeps the ticket open.</p>' +
+        '<p class="muted small">Parts FM handed back are set to OK. Change any that are damaged or missing. Anything left as "Not returned" stays on site and keeps the ticket open.</p>' +
         '<form id="form-return" class="stack"><div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" id="all-ok">Mark all OK</button></div>' +
         '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th>Result</th><th>Remarks</th></tr></thead><tbody>' +
         outstanding.map(function (i, n) {
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (Number(i.QtyOut) > 1 ? ' x' + esc(i.QtyOut) : '') + '</td><td><select data-res="' + n + '">' +
-            ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option>' + o + '</option>'; }).join('') + '</select></td>' +
+            ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option' + (i.ReturnDeclaredOn && o === 'OK' ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' +
+            (i.ReturnDeclaredOn ? '<div class="small muted">FM handed back ' + esc(String(i.ReturnDeclaredOn).slice(0, 10)) + '</div>' : '') + '</td>' +
             '<td><input data-rem="' + n + '" placeholder="Optional"></td></tr>';
         }).join('') + '</tbody></table></div>' +
         '<label id="issue-box" class="hidden">Describe the damage / missing parts (mailed to the FM team asking for an explanation)<textarea name="issueText" rows="3"></textarea></label>' +
@@ -504,8 +544,28 @@
     view.querySelectorAll('form[data-issue]').forEach(function (f) {
       f.addEventListener('submit', function (e) {
         e.preventDefault();
-        API.call('closeIssue', { IssueNo: f.dataset.issue, explanation: formData(f).explanation }).then(function (res) { reload('Issue closed. Ticket is now ' + res.status.toLowerCase()); }).catch(function (err) { toast(err.message); });
+        var fd = formData(f);
+        API.call('closeIssue', { IssueNo: f.dataset.issue, explanation: fd.explanation, remark: fd.remark }).then(function (res) { reload('Issue closed. Ticket is now ' + res.status.toLowerCase()); }).catch(function (err) { toast(err.message); });
       });
+    });
+    view.querySelectorAll('form[data-explain]').forEach(function (f) {
+      f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var fd = formData(f), btn = $('button', f);
+        busy(btn, true);
+        API.call('explainIssue', { IssueNo: f.dataset.explain, explanation: fd.explanation, actionPlan: fd.actionPlan })
+          .then(function () { reload('Explanation sent to the RTG Store'); }).catch(function (err) { toast(err.message); busy(btn, false); });
+      });
+    });
+    var hand = $('#form-handback');
+    if (hand) hand.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var ids = Array.prototype.map.call(hand.querySelectorAll('[data-hb]:checked'), function (x) { return x.dataset.hb; });
+      var btn = $('button[type=submit]', hand);
+      busy(btn, true);
+      API.call('declareReturn', { TicketNo: tk.TicketNo, ComponentIDs: ids, note: hand.note.value.trim() })
+        .then(function (res) { reload('Handed back ' + res.declared + ' component(s). RTG will inspect them.'); })
+        .catch(function (err) { showError($('#handback-error'), err); busy(btn, false); });
     });
     var decide = $('#form-decide');
     if (decide) decide.addEventListener('click', function (e) {
@@ -725,6 +785,328 @@
       ['#f-model', '#f-status', '#f-q'].forEach(function (s) { $(s).addEventListener('input', draw); });
       draw();
     }).catch(handleError);
+  }
+
+  // ---------- consumables ----------
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var CREQ_PILL = { Pending: 'warn', Approved: 'info', Issued: 'good', Rejected: 'bad' };
+  function qtyText(v, unit) { return esc(v === null || v === undefined || v === '' ? '—' : v) + (unit ? ' <span class="muted small">' + esc(unit) + '</span>' : ''); }
+
+  // A small form dialog. fields: html. onSubmit(data, dialog, errorEl) returns a promise.
+  function formDialog(title, fieldsHtml, submitLabel, onSubmit) {
+    var d = document.createElement('dialog');
+    d.innerHTML = '<form><h2>' + esc(title) + '</h2>' + fieldsHtml + '<div class="alert error hidden"></div>' +
+      '<div class="actions"><button class="btn secondary" type="button" data-close>Cancel</button><button class="btn" type="submit">' + esc(submitLabel) + '</button></div></form>';
+    document.body.appendChild(d);
+    d.addEventListener('close', function () { d.remove(); });
+    $('[data-close]', d).addEventListener('click', function () { d.close(); });
+    var form = $('form', d);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = $('button[type=submit]', form);
+      busy(btn, true);
+      Promise.resolve(onSubmit(formData(form), d, $('.alert', form))).catch(function (err) { showError($('.alert', form), err); }).then(function () { busy(btn, false); });
+    });
+    d.showModal();
+    return d;
+  }
+
+  function itemOptions(items, selected) {
+    return items.map(function (i) { return '<option value="' + esc(i.ItemID) + '"' + (i.ItemID === selected ? ' selected' : '') + '>' + esc(i.ItemName) + '</option>'; }).join('');
+  }
+
+  function convOptions() {
+    return ((state.lookups && state.lookups.conveyors) || []).map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">'; }).join('');
+  }
+
+  function openStockEntry(items, itemId, done) {
+    var d = formDialog('Update stock',
+      '<label>Material<select name="ItemID" required>' + itemOptions(items, itemId) + '</select></label>' +
+      '<div class="row"><label>What happened<select name="Type"><option value="Receipt">Received into store</option><option value="Issue">Issued / used</option><option value="Adjustment">Stock correction</option></select></label>' +
+      '<label>Quantity<input name="Qty" type="number" step="any" required></label><label>Date<input name="Date" type="date" required value="' + todayStr() + '" max="' + todayStr() + '"></label></div>' +
+      '<div class="row"><label>Batch number<input name="BatchNo" placeholder="Leave empty to use first expiring"></label><label data-for="Receipt">Expiry date<input name="ExpiryDate" type="date"></label></div>' +
+      '<div class="row" data-for="Issue"><label>Department<input name="Department" list="dept-list"></label><label>Conveyor<input name="Conveyor" list="conv-list3"></label></div>' +
+      '<div class="row"><label>Reference (challan, PO, note)<input name="Ref"></label><label>SAP stock today (optional)<input name="SAPStock" type="number" step="any"></label></div>' +
+      '<p class="muted small" data-help></p><datalist id="conv-list3">' + convOptions() + '</datalist>',
+      'Save', function (data, dlg) {
+        return API.call('stockEntry', data).then(function () { dlg.close(); toast('Stock updated'); done(); });
+      });
+    var type = $('[name=Type]', d);
+    var help = { Receipt: 'Adds to the batch. A new batch number starts a new batch with its own expiry date.',
+                 Issue: 'Takes stock from the batch that expires first (expired stock is never issued), unless you name a batch.',
+                 Adjustment: 'Corrects one batch after a physical count. Use a minus number to reduce it.' };
+    function sync() {
+      $('[data-for=Receipt]', d).classList.toggle('hidden', type.value !== 'Receipt');
+      $('[data-for=Issue]', d).classList.toggle('hidden', type.value !== 'Issue');
+      $('[name=Department]', d).required = type.value === 'Issue';
+      $('[name=BatchNo]', d).required = type.value === 'Adjustment';
+      $('[name=BatchNo]', d).placeholder = type.value === 'Receipt' ? 'e.g. the batch on the pack' : type.value === 'Issue' ? 'Leave empty to use first expiring' : 'Batch to correct';
+      $('[data-help]', d).textContent = help[type.value];
+    }
+    type.addEventListener('change', sync);
+    sync();
+  }
+
+  // ---- file upload (CSV) ----
+  var UPLOAD_COLS = ['Date', 'ItemName', 'Type', 'Qty', 'BatchNo', 'ExpiryDate', 'Department', 'Conveyor', 'Ref', 'SAPStock'];
+  function parseCsv(text) {
+    var rows = [], row = [], cell = '', q = false;
+    text = text.replace(/^﻿/, '');
+    var sep = (text.split('\n')[0].match(/;/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? ';' : ',';
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) {
+        if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return String(c).trim(); }); });
+  }
+  // Excel in India saves dates as 10-10-2026 or 10/10/2026 (day first). The app uses 2026-10-10.
+  function normDate(v) {
+    v = String(v || '').trim();
+    var m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/.exec(v);
+    if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+    return v;
+  }
+  function csvToEntries(rows) {
+    if (rows.length < 2) throw new Error('The file needs a header row and at least one data row.');
+    var head = rows[0].map(function (h) { return String(h).trim().replace(/\s+/g, '').toLowerCase(); });
+    var idx = {};
+    UPLOAD_COLS.concat(['ItemID']).forEach(function (c) { idx[c] = head.indexOf(c.toLowerCase()); });
+    if (idx.ItemName < 0 && idx.ItemID < 0) throw new Error('The header row needs an ItemName column. Download the template to see the layout.');
+    ['Type', 'Qty'].forEach(function (c) { if (idx[c] < 0) throw new Error('The header row needs a ' + c + ' column.'); });
+    return rows.slice(1).map(function (r) {
+      var o = {};
+      Object.keys(idx).forEach(function (c) { if (idx[c] >= 0) o[c] = String(r[idx[c]] === undefined ? '' : r[idx[c]]).trim(); });
+      if (o.Date) o.Date = normDate(o.Date);
+      if (o.ExpiryDate) o.ExpiryDate = normDate(o.ExpiryDate);
+      return o;
+    });
+  }
+  function downloadTemplate(items) {
+    var lines = [UPLOAD_COLS.join(','),
+      [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Receipt', '10', 'B123', '2027-03-31', '', '', 'Challan 456', ''].join(','),
+      [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Issue', '2', '', '', 'FM', 'CNV-205', '', '']. join(',')];
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
+    a.download = 'consumables_upload_template.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function openUpload(items, done) {
+    var entries = null;
+    var d = formDialog('Upload stock file',
+      '<p class="muted small">Upload a CSV file (in Excel: <b>File → Save As → CSV</b>). One row per movement. <b>Type</b> is Receipt, Issue or Adjustment. ' +
+      'Every row is checked first; nothing is saved unless all rows are correct.</p>' +
+      '<p><button class="btn secondary small" type="button" data-tpl>Download template</button></p>' +
+      '<label>File<input type="file" name="file" accept=".csv,text/csv"></label><div data-preview></div>',
+      'Save all rows', function (data, dlg, errEl) {
+        if (!entries) throw new Error('Choose a file first.');
+        return API.call('uploadStock', { rows: entries }).then(function (r) {
+          if (!r.ok) { showErrors(r.errors); throw new Error('Nothing was saved. Fix the rows above and upload again.'); }
+          dlg.close(); toast('Saved ' + r.rows + ' row(s)'); done();
+        });
+      });
+    var preview = $('[data-preview]', d), submit = $('button[type=submit]', d);
+    submit.disabled = true;
+    $('[data-tpl]', d).addEventListener('click', function () { downloadTemplate(items); });
+    function showErrors(errors) {
+      var bad = {}; errors.forEach(function (e) { bad[e.row] = e.error; });
+      preview.innerHTML = '<div class="table-wrap" style="max-height:260px;margin-top:8px"><table><thead><tr><th>#</th><th>Material</th><th>Type</th><th class="num">Qty</th><th>Check</th></tr></thead><tbody>' +
+        entries.map(function (e, i) {
+          return '<tr><td>' + (i + 1) + '</td><td>' + esc(e.ItemName || e.ItemID) + '</td><td>' + esc(e.Type) + '</td><td class="num">' + esc(e.Qty) + '</td><td>' +
+            (bad[i + 1] ? '<span class="pill bad">' + esc(bad[i + 1]) + '</span>' : '<span class="pill good">OK</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<p class="small ' + (errors.length ? 'warn-text' : 'muted') + '">' + (errors.length ? errors.length + ' row(s) need fixing.' : 'All ' + entries.length + ' rows are correct.') + '</p>';
+    }
+    $('[name=file]', d).addEventListener('change', function () {
+      var f = this.files[0], alert = $('.alert', d);
+      alert.classList.add('hidden'); entries = null; submit.disabled = true; preview.innerHTML = '';
+      if (!f) return;
+      if (/\.xlsx?$/i.test(f.name)) return showError(alert, new Error('Please save the Excel file as CSV first (File → Save As → CSV), then upload the CSV.'));
+      var input = this;
+      f.text().then(function (text) {
+        // Clear the picker so choosing the same file again (after fixing it in Excel) is read again.
+        input.value = '';
+        entries = csvToEntries(parseCsv(text));
+        preview.innerHTML = '<p class="muted small">Checking ' + entries.length + ' row(s)…</p>';
+        return API.call('uploadStock', { rows: entries, dryRun: true });
+      }).then(function (r) { if (!r) return; showErrors(r.errors); submit.disabled = !r.ok; })
+        .catch(function (err) { entries = null; preview.innerHTML = ''; showError(alert, err); });
+    });
+  }
+
+  function openConsumableRequest(items, itemId, done) {
+    formDialog('Request material',
+      '<label>Material<select name="ItemID" required>' + itemOptions(items, itemId) + '</select></label>' +
+      '<div class="row"><label>Quantity<input name="Qty" type="number" step="any" min="0" required></label><label>Department<input name="Department" list="dept-list" required></label></div>' +
+      '<label>Conveyor<input name="Conveyor" list="conv-list4"></label>' +
+      '<label>Purpose<textarea name="Purpose" rows="2" required placeholder="e.g. Hot joint on CNV-205"></textarea></label><datalist id="conv-list4">' + convOptions() + '</datalist>',
+      'Send request', function (data, dlg) {
+        return API.call('raiseConsumableRequest', data).then(function (r) { dlg.close(); toast('Request ' + r.RequestNo + ' sent to the RTG team'); done(); });
+      });
+  }
+
+  function renderConsumables(arg, params) {
+    var tab = params.f === 'requests' ? 'requests' : 'items';
+    var head = '<div class="page-head"><div><h1>Consumables</h1><p class="muted">Jointing material in the RTG Store: stock, expiry, consumption and requests.</p></div>' +
+      '<div class="actions" style="margin:0">' + (isAdmin() ? '<button class="btn secondary" type="button" id="c-upload">Upload file</button><button class="btn secondary" type="button" id="c-entry">Update stock</button>' : '') +
+      '<button class="btn" type="button" id="c-request">+ Request material</button></div></div>';
+    view.innerHTML = '<div class="page-head"><div><h1>Consumables</h1></div></div><p class="muted">Loading…</p>';
+    Promise.all([API.call('listConsumables'), API.call('listConsumableRequests')]).then(function (res) {
+      var items = res[0], reqs = res[1];
+      var reload = function () { renderConsumables(arg, params); };
+      var waiting = reqs.filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length;
+      var count = function (fn) { return items.filter(fn).length; };
+      function stat(label, v, tone, href) {
+        return '<a class="card stat tile" href="' + href + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
+      }
+      var html = head +
+        '<div class="grid grid-5" style="margin-bottom:16px">' +
+        stat('Materials', items.length, '', '#/consumables') +
+        stat('Low stock', count(function (i) { return i.lowStock; }), 'bad', '#/consumables?show=low') +
+        stat('Expiring in 30 days', count(function (i) { return i.expiringSoon; }), 'warn', '#/consumables?show=expiring') +
+        stat('Have expired stock', count(function (i) { return i.expiredQty > 0; }), 'bad', '#/consumables?show=expired') +
+        stat('Requests to handle', waiting, 'warn', '#/consumables?f=requests') + '</div>' +
+        '<div class="chips"><a class="chip' + (tab === 'items' ? ' active' : '') + '" href="#/consumables">Stock</a><a class="chip' + (tab === 'requests' ? ' active' : '') + '" href="#/consumables?f=requests">Requests' + (waiting ? ' (' + waiting + ')' : '') + '</a></div>';
+      if (tab === 'items') {
+        var show = params.show, list = items.filter(function (i) {
+          return !show || (show === 'low' && i.lowStock) || (show === 'expiring' && i.expiringSoon) || (show === 'expired' && i.expiredQty > 0);
+        });
+        html += (show ? '<p class="small muted">Showing ' + esc({ low: 'low stock', expiring: 'expiring soon', expired: 'with expired stock' }[show]) + ' · <a href="#/consumables">show all</a></p>' : '') +
+          '<div class="grid grid-3">' + (list.map(function (i) {
+            var pills = [];
+            if (i.lowStock) pills.push('<span class="pill bad">Low stock</span>');
+            if (i.expiredQty > 0) pills.push('<span class="pill bad">' + esc(i.expiredQty) + ' expired</span>');
+            if (i.expiringSoon) pills.push('<span class="pill warn">Expires ' + esc(i.nearestExpiry) + '</span>');
+            if (!pills.length && i.stock > 0) pills.push('<span class="pill good">OK</span>');
+            if (!i.stock) pills.push('<span class="pill none">No stock</span>');
+            var diff = i.SAPStock !== '' && i.SAPStock !== undefined ? i.stock - Number(i.SAPStock) : null;
+            return '<a class="card tile cons-card" href="#/consumable/' + encodeURIComponent(i.ItemID) + '">' +
+              '<div><h2>' + esc(i.ItemName) + '</h2><div class="small muted">' + esc(i.Manufacturer || 'Manufacturer not set') + '</div></div>' +
+              '<div class="cons-stock">' + esc(i.usableStock) + ' <span class="small muted">' + esc(i.Unit || '') + ' usable in store</span></div>' +
+              '<div>' + pills.join(' ') + '</div>' +
+              '<div class="kv"><span>This month <b>' + esc(i.thisMonth) + '</b></span><span>Avg / month <b>' + esc(i.avgMonthly) + '</b></span>' +
+              '<span>SAP <b>' + esc(i.SAPStock === '' ? '—' : i.SAPStock) + '</b>' + (diff ? ' <span class="' + (diff ? 'warn-text' : '') + '">(' + (diff > 0 ? '+' : '') + diff + ')</span>' : '') + '</span>' +
+              (i.monthsCover !== null ? '<span>Lasts <b>' + esc(i.monthsCover) + ' mo</b></span>' : '') + '</div></a>';
+          }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
+      } else {
+        html += '<div class="card"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Material</th><th class="num">Qty</th><th>Department / conveyor</th><th>Purpose</th><th>Status</th>' + (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' +
+          (reqs.map(function (r) {
+            var act = '';
+            if (isAdmin() && r.Status === 'Pending') act = '<button class="btn small" data-approve="' + esc(r.RequestNo) + '" type="button">Approve</button> <button class="btn small danger" data-reject="' + esc(r.RequestNo) + '" type="button">Reject</button>';
+            if (isAdmin() && r.Status === 'Approved') act = '<button class="btn small" data-issue="' + esc(r.RequestNo) + '" type="button">Issue</button>';
+            return '<tr><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + ' · ' + esc(r.RaisedByName) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + esc(r.ItemName) + '</td><td class="num">' + qtyText(r.IssuedQty || r.Qty, r.Unit) + '</td>' +
+              '<td>' + esc(r.Department) + '<div class="small muted">' + esc(r.Conveyor) + '</div></td><td>' + esc(r.Purpose) + (r.RejectReason ? '<div class="small" style="color:var(--bad)">Rejected: ' + esc(r.RejectReason) + '</div>' : '') +
+              (r.IssuedBatch ? '<div class="small muted">Batch ' + esc(r.IssuedBatch) + '</div>' : '') + '</td>' +
+              '<td><span class="pill ' + (CREQ_PILL[r.Status] || 'info') + '">' + esc(r.Status) + '</span></td>' + (isAdmin() ? '<td style="white-space:nowrap">' + act + '</td>' : '') + '</tr>';
+          }).join('') || '<tr><td colspan="8" class="muted">No consumable requests yet.</td></tr>') + '</tbody></table></div></div>';
+      }
+      view.innerHTML = html;
+      $('#c-request').addEventListener('click', function () { openConsumableRequest(items, '', function () { location.hash = '#/consumables?f=requests'; reload(); }); });
+      if (isAdmin()) {
+        $('#c-entry').addEventListener('click', function () { openStockEntry(items, '', reload); });
+        $('#c-upload').addEventListener('click', function () { openUpload(items, reload); });
+      }
+      view.querySelectorAll('[data-approve]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          busy(b, true);
+          API.call('decideConsumableRequest', { RequestNo: b.dataset.approve, decision: 'approve' })
+            .then(function (r) { toast('Approved. Ticket ' + r.TicketNo); reload(); }).catch(function (err) { toast(err.message); busy(b, false); });
+        });
+      });
+      view.querySelectorAll('[data-reject]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          formDialog('Reject ' + b.dataset.reject, '<label>Reason (sent to the person who asked)<textarea name="reason" rows="3" required></textarea></label>', 'Reject', function (data, dlg) {
+            return API.call('decideConsumableRequest', { RequestNo: b.dataset.reject, decision: 'reject', reason: data.reason }).then(function () { dlg.close(); toast('Rejected'); reload(); });
+          });
+        });
+      });
+      view.querySelectorAll('[data-issue]').forEach(function (b) {
+        var r = reqs.filter(function (x) { return x.RequestNo === b.dataset.issue; })[0];
+        b.addEventListener('click', function () {
+          formDialog('Issue ' + r.TicketNo, '<p class="muted small">' + esc(r.ItemName) + ' for ' + esc(r.Department) + '. Stock is taken from the batch that expires first unless you name one.</p>' +
+            '<div class="row"><label>Quantity handed over<input name="Qty" type="number" step="any" min="0" required value="' + esc(r.Qty) + '"></label><label>Batch (optional)<input name="BatchNo"></label></div>', 'Issue', function (data, dlg) {
+            data.no = r.RequestNo;
+            return API.call('issueConsumable', data).then(function (x) { dlg.close(); toast('Issued from batch ' + x.batches.join(', ')); reload(); });
+          });
+        });
+      });
+    }).catch(handleError);
+  }
+
+  function renderConsumable(id) {
+    view.innerHTML = '<p class="muted">Loading…</p>';
+    Promise.all([API.call('consumableDetail', { ItemID: id }), API.call('listConsumables')]).then(function (res) {
+      var d = res[0], items = res[1], s = d.summary;
+      var reload = function () { renderConsumable(id); };
+      var diff = s.SAPStock !== '' ? s.stock - Number(s.SAPStock) : null;
+      view.innerHTML =
+        '<div class="page-head"><div><h1>' + esc(s.ItemName) + '</h1><p class="muted">' + esc(s.Manufacturer || 'Manufacturer not set') + (s.Unit ? ' · unit: ' + esc(s.Unit) : '') + '</p></div>' +
+        '<div class="actions" style="margin:0"><a class="btn secondary" href="#/consumables">Back</a>' + (isAdmin() ? '<button class="btn secondary" id="i-edit" type="button">Edit details</button><button class="btn secondary" id="i-entry" type="button">Update stock</button>' : '') +
+        '<button class="btn" id="i-request" type="button">Request this</button></div></div>' +
+        '<div class="grid grid-5" style="margin-bottom:16px">' +
+        statTile('Usable stock', s.usableStock + (s.Unit ? ' ' + s.Unit : ''), true) +
+        statTile('Expired stock', s.expiredQty) +
+        statTile('Used this month', s.thisMonth) +
+        statTile('Average per month (6 mo)', s.avgMonthly) +
+        statTile('SAP stock' + (diff ? ' (diff ' + (diff > 0 ? '+' : '') + diff + ')' : ''), s.SAPStock === '' ? '—' : s.SAPStock) + '</div>' +
+        (s.lowStock ? '<div class="alert error">Stock is at or below the reorder level (' + esc(s.ReorderLevel) + ').</div>' : '') +
+        '<div class="card"><h2>Monthly consumption</h2><div class="chart-box" style="height:240px"><canvas id="chart-monthly" aria-label="Monthly consumption, last 12 months"></canvas></div></div>' +
+        '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">' +
+        '<div class="card"><h2>Department-wise (last 6 months)</h2><div class="table-wrap"><table><thead><tr><th>Department</th>' + d.deptMonths.map(function (m) { return '<th class="num">' + MONTHS[Number(m.slice(5)) - 1] + '</th>'; }).join('') + '<th class="num">Total 12 mo</th></tr></thead><tbody>' +
+        (d.deptMonthly.map(function (r, i) { return '<tr><td>' + esc(r.department) + '</td>' + r.months.map(function (v) { return '<td class="num">' + (v || '<span class="muted">0</span>') + '</td>'; }).join('') + '<td class="num"><b>' + d.byDepartment[i].qty + '</b></td></tr>'; }).join('') ||
+          '<tr><td colspan="8" class="muted">No consumption recorded yet.</td></tr>') + '</tbody></table></div></div>' +
+        '<div class="card"><h2>Stock by batch</h2><div class="table-wrap"><table><thead><tr><th>Batch</th><th class="num">Qty</th><th>Expiry</th><th>Received</th></tr></thead><tbody>' +
+        (d.batches.map(function (b) {
+          var tag = b.expired ? '<span class="pill bad">Expired</span>' : b.daysLeft !== null && b.daysLeft <= 30 ? '<span class="pill warn">' + b.daysLeft + ' days left</span>' : '';
+          return '<tr><td><b>' + esc(b.BatchNo) + '</b></td><td class="num">' + esc(b.Qty) + '</td><td>' + esc(b.ExpiryDate || '—') + ' ' + tag + '</td><td>' + esc(b.ReceivedOn) + '</td></tr>';
+        }).join('') || '<tr><td colspan="4" class="muted">No stock.</td></tr>') + '</tbody></table></div></div></div>' +
+        '<div class="card" style="margin-top:16px"><h2>Recent movements</h2><div class="table-wrap"><table><thead><tr><th>Date</th><th>Type</th><th class="num">Qty</th><th>Batch</th><th>Department / conveyor</th><th>Ref</th><th>By</th></tr></thead><tbody>' +
+        (d.transactions.map(function (t) {
+          return '<tr><td>' + esc(t.Date) + '</td><td><span class="pill ' + (t.Type === 'Issue' ? 'info' : t.Type === 'Receipt' ? 'good' : 'warn') + '">' + esc(t.Type) + '</span></td><td class="num">' + esc(t.Qty) + '</td><td>' + esc(t.BatchNo) + '</td><td>' + esc(t.Department) + '<div class="small muted">' + esc(t.Conveyor) + '</div></td><td>' + esc(t.Ref) + '</td><td>' + esc(t.EnteredBy) + '</td></tr>';
+        }).join('') || '<tr><td colspan="7" class="muted">Nothing yet.</td></tr>') + '</tbody></table></div></div>';
+      drawMonthly(d.monthly, s.avgMonthly);
+      $('#i-request').addEventListener('click', function () { openConsumableRequest(items, id, function () { location.hash = '#/consumables?f=requests'; }); });
+      if (isAdmin()) {
+        $('#i-entry').addEventListener('click', function () { openStockEntry(items, id, reload); });
+        $('#i-edit').addEventListener('click', function () {
+          formDialog('Edit ' + s.ItemName,
+            '<div class="row"><label>Manufacturer<input name="Manufacturer" value="' + esc(s.Manufacturer) + '"></label><label>Unit<input name="Unit" value="' + esc(s.Unit) + '" placeholder="kit, kg, litre, roll"></label></div>' +
+            '<div class="row"><label>Reorder level<input name="ReorderLevel" type="number" step="any" value="' + esc(s.ReorderLevel) + '"></label><label>SAP stock<input name="SAPStock" type="number" step="any" value="' + esc(s.SAPStock) + '"></label></div>',
+            'Save', function (data, dlg) {
+              data.ItemID = id;
+              return API.call('saveConsumable', data).then(function () { dlg.close(); toast('Saved'); reload(); });
+            });
+        });
+      }
+    }).catch(function (err) {
+      if (err.auth) return handleError(err);
+      view.innerHTML = '<div class="card"><h2>Not found</h2><p class="muted">' + esc(err.message) + '</p><a class="btn" href="#/consumables">Back</a></div>';
+    });
+  }
+
+  function drawMonthly(monthly, avg) {
+    if (!window.Chart) return;
+    var text2 = cssVar('--text-2'), grid = cssVar('--border');
+    charts.push(new Chart($('#chart-monthly'), {
+      type: 'bar',
+      data: {
+        labels: monthly.map(function (m) { return MONTHS[Number(m.month.slice(5)) - 1] + ' ' + m.month.slice(2, 4); }),
+        datasets: [
+          { label: 'Issued', data: monthly.map(function (m) { return m.qty; }), backgroundColor: cssVar('--series-1'), borderRadius: 4, maxBarThickness: 36 },
+          { label: 'Average (6 mo)', type: 'line', data: monthly.map(function () { return avg; }), borderColor: cssVar('--series-2'), borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: text2, boxWidth: 12 } }, tooltip: { mode: 'index', intersect: false } },
+        scales: { x: { grid: { display: false }, ticks: { color: text2 } }, y: { beginAtZero: true, ticks: { precision: 0, color: text2 }, grid: { color: grid } } }
+      }
+    }));
   }
 
   // ---------- users (admin) ----------

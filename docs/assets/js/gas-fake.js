@@ -142,7 +142,8 @@
         computeDigest: function (alg, s) { return sha256(utf8(String(s))); },
         base64Encode: base64,
         getUuid: uuid,
-        formatDate: formatDate
+        formatDate: formatDate,
+        newBlob: function (data, type, name) { return { data: data, type: type, name: name }; }
       },
       Session: { getScriptTimeZone: function () { return 'Asia/Kolkata'; } },
       MailApp: { sendEmail: function (m) { mails.push(m); } },
