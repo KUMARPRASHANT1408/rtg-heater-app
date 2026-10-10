@@ -67,7 +67,8 @@ h2 { font-size: 1.15rem; }
   background: #1f3a68; color: #fff;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; text-decoration: none; color: #fff; }
-.brand-mark { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #3987e5, #eb6834); display: grid; place-items: center; font-size: 15px; color: #fff; }
+.brand-mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, .22); flex: none; }
+.brand-mark svg { width: 100%; height: 100%; display: block; }
 .nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
 .nav a { color: #cfdcf0; text-decoration: none; padding: 7px 12px; border-radius: 8px; white-space: nowrap; font-size: .93rem; }
 .nav a:hover { background: rgba(255, 255, 255, .08); color: #fff; }
@@ -147,7 +148,7 @@ details summary { cursor: pointer; color: var(--brand-2); font-size: .9rem; }
   radial-gradient(1200px 600px at 10% -10%, rgba(57, 135, 229, .25), transparent 60%),
   radial-gradient(900px 500px at 110% 110%, rgba(235, 104, 52, .18), transparent 60%), var(--bg); }
 .login-card { width: 100%; max-width: 400px; padding: 32px; }
-.login-card .brand-mark { width: 46px; height: 46px; font-size: 22px; border-radius: 12px; margin-bottom: 14px; }
+.login-card .brand-mark { width: 56px; height: 56px; border-radius: 13px; margin-bottom: 14px; box-shadow: none; }
 .login-card form { display: grid; gap: 14px; margin-top: 18px; }
 
 .alert { padding: 10px 14px; border-radius: 10px; font-size: .9rem; }
@@ -223,4 +224,12 @@ dialog h2 { margin: 0; }
 @media (max-width: 1400px) and (min-width: 1101px) {
   .who .name { display: none; }
   .nav a { padding: 7px 9px; font-size: .9rem; }
+}
+
+.calc-head h2 { margin: 2px 0 0; }
+.calc-steps { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+@media print {
+  .topbar, .demo-banner, #form-calc, #calc-print { display: none !important; }
+  body { background: #fff; }
+  .card { box-shadow: none; break-inside: avoid; }
 }

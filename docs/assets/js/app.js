@@ -48,7 +48,7 @@
   ];
   var ROUTES = { '#/home': renderHome, '#/heaters': renderHeaters, '#/inventory': renderInventory, '#/users': renderUsers,
                  '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers,
-                 '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance };
+                 '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator };
   var ADMIN_ROUTES = ['#/inventory', '#/users'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
@@ -84,7 +84,7 @@
     $('#topbar').classList.add('hidden');
     view.innerHTML =
       '<div class="login-wrap"><div class="card login-card">' +
-      '<span class="brand-mark">♨</span><h1>RTG Heater Store</h1>' +
+      '<span class="brand-mark">' + $('.brand .brand-mark').innerHTML + '</span><h1>RTG Heater Store</h1>' +
       '<p class="muted">Heater and consumables issue, return and tracking.</p>' +
       '<form id="form-login">' +
       '<label>User ID<input name="userId" required autocomplete="username" autofocus></label>' +
@@ -118,23 +118,38 @@
   }
 
   // ---------- home ----------
+  // Line icons (24 px grid, drawn with the text colour) for the home tiles.
+  var ICON = {
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
+    requests: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/>',
+    transfer: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+    consumables: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/>',
+    maintenance: '<path d="M14.5 5.5a4 4 0 0 0 4.9 4.9l-9 9a2.1 2.1 0 0 1-3-3l9-9a4 4 0 0 0-1.9-1.9z"/>',
+    inventory: '<path d="M3.5 8L12 4l8.5 4v8L12 20l-8.5-4z"/><path d="M3.5 8L12 12l8.5-4M12 12v8"/>',
+    calculator: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h2M12 11h2M8 15h2M12 15h2M8 18h2M12 18h2M16 11v7"/>',
+    users: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15.5 4.6a3.5 3.5 0 0 1 0 6.8M17.5 14.3c2 .8 3.5 3 3.5 5.7"/>'
+  };
+  function icon(name) {
+    return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[name] + '</svg>';
+  }
+
   function renderHome() {
     var tiles = [
-      { href: '#/heaters', ico: '🔎', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' },
-      { href: '#/requests', ico: '📝', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
-      { href: '#/transfers', ico: '🔁', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
-      { href: '#/consumables', ico: '🧪', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
+      { href: '#/heaters', ico: 'search', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' },
+      { href: '#/requests', ico: 'requests', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
+      { href: '#/transfers', ico: 'transfer', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
+      { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
     ];
-    if (canMaintain()) tiles.splice(isAdmin() ? 3 : 0, 0, { href: '#/maintenance', ico: '🛠️', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
+    if (canMaintain()) tiles.splice(isAdmin() ? 3 : 0, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
     if (isAdmin()) {
-      tiles.splice(1, 0, { href: '#/inventory', ico: '🧰', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
-      tiles.push({ href: '#/calculator', ico: '📐', title: 'Joint calculator', text: 'Minimum joint length and step length from belt width, rating and plies.', soon: true });
-      tiles.push({ href: '#/users', ico: '👥', title: 'Users', text: 'Add people, choose admins and approvers, reset passwords.' });
+      tiles.splice(1, 0, { href: '#/inventory', ico: 'inventory', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
     }
+    tiles.push({ href: '#/calculator', ico: 'calculator', title: 'Joint calculator', text: 'Step length, joint length, platen size, pressure and cure time from the belt details.' });
+    if (isAdmin()) tiles.push({ href: '#/users', ico: 'users', title: 'Users', text: 'Add people, choose admins and approvers, reset passwords.' });
     view.innerHTML =
       '<div class="page-head"><div><h1>Welcome, ' + esc(state.user.Name) + '</h1><p class="muted">What would you like to do?</p></div></div>' +
       '<div class="grid grid-3">' + tiles.map(function (t) {
-        return '<a class="card tile' + (t.soon ? ' soon' : '') + '" href="' + t.href + '"><span class="ico">' + t.ico + '</span>' +
+        return '<a class="card tile' + (t.soon ? ' soon' : '') + '" href="' + t.href + '"><span class="ico">' + icon(t.ico) + '</span>' +
           (t.soon ? '<span class="soon-tag">Coming next</span>' : '') +
           '<h2>' + esc(t.title) + '</h2><p class="muted small">' + esc(t.text) + '</p></a>';
       }).join('') + '</div>';
@@ -154,6 +169,106 @@
         (d.consumablePending ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">Consumable requests</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
         (d.consumableAlerts ? '<a class="card stat tile" href="#/consumables"><div class="label">Consumables low or expiring</div><div class="value" style="color:var(--bad)">' + d.consumableAlerts + '</div></a>' : '');
     }).catch(function () { box.remove(); });
+  }
+
+  // ---------- joint calculator ----------
+  // All the numbers come from JOINT_STD in shared/logic.js (the RTG standard).
+  function renderCalculator(arg, params) {
+    var conv = (state.lookups && state.lookups.conveyors) || [];
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Joint calculator</h1><p class="muted">Step length, joint length, platen size, pressure and cure time for a hot vulcanised joint.</p></div>' +
+      '<button class="btn secondary" type="button" id="calc-print">Print</button></div>' +
+      '<form class="card stack" id="form-calc">' +
+      '<div class="row">' +
+      '<label>Conveyor (optional)<select name="conveyor"><option value="">Choose to auto-fill</option>' +
+      conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">' + esc(c.ConveyorName) + (c.Area ? ' · ' + esc(c.Area) : '') + '</option>'; }).join('') + '</select></label>' +
+      '<label>Belt (type rating/plies)<input name="belt" required placeholder="EP 800/4 or ST1000" autocomplete="off"></label>' +
+      '<label>Belt width (mm)<input name="width" type="number" min="100" required inputmode="numeric"></label>' +
+      '</div><div class="row">' +
+      '<label>Top cover (mm)<input name="top" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 6"></label>' +
+      '<label>Bottom cover (mm)<input name="bottom" type="number" min="0" step="0.1" inputmode="decimal" placeholder="e.g. 2"></label>' +
+      '<label>Carcass thickness (mm)<input name="carcass" type="number" min="0" step="0.1" inputmode="decimal" placeholder="blank = estimate"></label>' +
+      '<label>Cooling<select name="cooling"><option value="water">Internal water cooling</option><option value="air">Forced air</option><option value="natural">Natural air</option></select></label>' +
+      '</div><details><summary>More settings</summary><div class="row" style="margin-top:10px">' +
+      '<label>Bias angle (degrees)<input name="bias" type="number" min="0" max="45" step="0.1" value="' + JOINT_STD.biasDeg + '"></label>' +
+      '<label>Bevel allowance each end (mm)<input name="bevel" type="number" min="0" max="100" step="1" value="0" placeholder="25 - 50 if used"></label>' +
+      '</div></details>' +
+      '<div class="actions"><button class="btn" type="submit">Calculate</button></div></form>' +
+      '<div id="calc-out" class="stack" style="margin-top:20px"></div>';
+    var form = $('#form-calc');
+    form.conveyor.addEventListener('change', function () {
+      var c = conv.filter(function (x) { return x.ConveyorName === form.conveyor.value; })[0];
+      if (!c) return;
+      var r = String(c.BeltRating_Nmm || '').toUpperCase();
+      form.width.value = c.BeltWidth_mm || '';
+      form.belt.value = /^ST/.test(r) ? r : r ? 'EP ' + r + (c.Plies ? '/' + c.Plies : '') : '';
+    });
+    if (params && params.belt) { form.belt.value = params.belt; form.width.value = params.w || ''; }
+    $('#calc-print').addEventListener('click', function () { window.print(); });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var f = formData(form), r;
+      try { r = jointCalc(f); } catch (err) { toast(err.message); return; }
+      r.conveyor = f.conveyor;
+      $('#calc-out').innerHTML = calcResult(r);
+    });
+  }
+
+  function mm(v) { return esc(v) + ' mm'; }
+  function rng(a, unit) { return a[0] === a[1] ? esc(a[0]) + (unit || '') : esc(a[0]) + ' – ' + esc(a[1]) + (unit || ''); }
+  function kvTable(rows) {
+    return '<div class="table-wrap"><table><tbody>' + rows.map(function (x) {
+      return '<tr><td>' + x[0] + (x[2] ? '<div class="small muted">' + esc(x[2]) + '</div>' : '') + '</td><td class="num"><b>' + x[1] + '</b></td></tr>';
+    }).join('') + '</tbody></table></div>';
+  }
+
+  function calcResult(r) {
+    var head = '<div class="card calc-head"><div class="small muted">' + (r.conveyor ? esc(r.conveyor) + ' · ' : '') + 'Belt</div><h2>' +
+      esc(r.type) + ' ' + esc(r.rating) + (r.plies ? '/' + esc(r.plies) : '') + ' · ' + mm(r.width) + ' wide</h2></div>';
+    var notes = r.notes.length ? '<div class="alert info">' + r.notes.map(esc).join('<br>') + '</div>' : '';
+    if (r.kind === 'steel') {
+      return head + notes + (r.band ? '<div class="card"><h2>Steel cord splice (DIN 22131)</h2>' + kvTable([
+        ['Splice type', r.band.steps + '-step splice'],
+        ['Splice length', rng(r.band.splice, ' mm'), 'Range for ST ' + r.band.from + ' – ST ' + r.band.to]
+      ]) + '<p class="small muted">Steel cord belts do not use the fabric step formula. Platen, pressure and cure time are not in this standard for steel cord belts.</p></div>' : '');
+    }
+    var c = r.cure, P = r.platen;
+    var joint = '<div class="card"><h2>1. Step and joint length</h2>' + kvTable([
+      ['Rating of one ply', esc(r.plyRating) + ' N/mm', esc(r.rating) + ' ÷ ' + esc(r.plies) + ' plies'],
+      ['Step length (l<sub>s</sub>)', mm(r.step.step), r.step.band + (r.step.range[0] !== r.step.range[1] ? ': standard range ' + r.step.range[0] + ' – ' + r.step.range[1] + ' mm' : '')],
+      ['Number of steps', esc(r.steps), esc(r.plies) + ' plies − 1'],
+      ['Stepped overlap length (L<sub>v</sub>)', mm(r.overlapLength), r.steps + ' × ' + r.step.step + ' mm'],
+      ['Bias length (l<sub>b</sub>)', mm(r.biasLength), r.width + ' mm × tan ' + r.bias + '°'],
+    ].concat(r.bevel ? [['Bevel allowance', mm(2 * r.bevel), '2 × ' + r.bevel + ' mm']] : []).concat([
+      ['Total splice length (L<sub>tot</sub>)', mm(r.totalLength), 'Belt length to prepare on each end'],
+    ]).concat(r.step.overlap ? [['Minimum pulley face overlap', mm(r.step.overlap)]] : [])) +
+      '<p class="small">Each belt end: <b>' + r.totalLength + ' mm</b> of carcass lap, cut on a <b>' + r.biasLength + ' mm</b> bias, with <b>' + r.steps + '</b> steps of <b>' + r.step.step + ' mm</b>.</p></div>';
+    var platen = '<div class="card"><h2>2. Platen size</h2>' + kvTable([
+      ['Platen width (W<sub>p</sub>)', rng(P.width, ' mm'), 'Belt width + 75 to 100 mm each side for edge irons'],
+      ['Rhombic platen length', mm(P.rhombic.length), 'Steps + 125 mm each end (range ' + rng(P.rhombic.range, ' mm') + ')'],
+      ['Rectangular platen length', mm(P.rectangular.length), 'Whole splice + 100 mm each end (range ' + rng(P.rectangular.range, ' mm') + ')']
+    ]) + '</div>';
+    function f(x) { return rng(x.kN, ' kN') + '<div class="small muted">' + rng(x.t, ' t') + '</div>'; }
+    var press = '<div class="card"><h2>3. Pressure and clamping force</h2>' + kvTable([
+      ['Vulcanising pressure', '0.8 – 1.0 MPa', '8 – 10 bar; 0.8 MPa recommended'],
+      ['Rhombic: platen area', esc(P.rhombic.force.area) + ' m²'],
+      ['Rhombic: total force', f(P.rhombic.force), 'At 0.8 and 1.0 MPa'],
+      ['Rectangular: platen area', esc(P.rectangular.force.area) + ' m²'],
+      ['Rectangular: total force', f(P.rectangular.force), 'At 0.8 and 1.0 MPa'],
+      ['Crossbeam stations (30 t each)', P.rhombic.force.beams + ' rhombic · ' + P.rectangular.force.beams + ' rectangular', 'Pairs of crossbeams needed at full pressure']
+    ]) + '</div>';
+    var cure = c ? '<div class="card"><h2>4. Cure cycle</h2>' + kvTable([
+      ['Total thickness (T)', mm(c.thickness), 'Carcass ' + c.carcass + (c.carcassEstimated ? ' mm (estimated, ' + JOINT_STD.carcassPerPly + ' mm per ply)' : ' mm') + ' + top ' + c.top + ' + bottom ' + c.bottom],
+      ['Soak time at 145 °C', esc(c.soakUsed) + ' min', '3.0 – 3.2 min per mm: ' + rng(c.soak, ' min')],
+      ['Heat-up to 145 °C', rng(c.rampUp, ' min'), 'At 2.5 – 3.5 °C per minute'],
+      ['Cool down to 60 °C', rng(c.cool, ' min'), { water: 'Internal water cooling', air: 'Forced air cooling', natural: 'Natural air cooling' }[c.cooling]],
+      ['Total press time', rng(c.total, ' min'), 'Heat-up + soak + cool-down']
+    ]) + '<ol class="small calc-steps">' +
+      '<li>Clamp at <b>2 – 3 bar</b> (0.2 – 0.3 MPa) from cold until the platens reach <b>100 °C</b>.</li>' +
+      '<li>Between <b>100 and 110 °C</b>, raise to full pressure: <b>8 – 10 bar</b>.</li>' +
+      '<li>Start the soak timer when every platen thermocouple reads <b>142 °C</b>. Hold <b>145 ± 5 °C</b> for <b>' + c.soakUsed + ' min</b>. <b>Never exceed 150 °C.</b></li>' +
+      '<li>Keep full pressure while cooling. Release only at <b>60 °C or below</b>.</li></ol></div>' : '';
+    return head + notes + joint + platen + press + cure;
   }
 
   // ---------- heater search ----------
