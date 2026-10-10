@@ -63,6 +63,21 @@ test('roles: local user cannot manage users, admin can', () => {
   assert.match(call('saveUser', { UserID: 'admin', Name: 'x', Role: 'Local' }, admin).error, /own admin/);
 });
 
+test('admin can delete another user, not themself', () => {
+  const { temp, call } = freshApp();
+  const admin = call('login', { userId: 'admin', password: temp }).data.token;
+  const pw = call('saveUser', { UserID: 'fm01', Name: 'FM Person', Role: 'Local', Team: 'FM' }, admin).data.tempPassword;
+  call('saveUser', { UserID: 'fm02', Name: 'Second', Role: 'Local', Team: 'FM' }, admin);
+  const local = call('login', { userId: 'fm01', password: pw }).data.token;
+  assert.match(call('deleteUser', { UserID: 'fm02' }, local).error, /permission/);
+  assert.match(call('deleteUser', { UserID: 'admin' }, admin).error, /own account/);
+  assert.ok(call('deleteUser', { UserID: 'fm01' }, admin).ok);
+  assert.deepStrictEqual(call('listUsers', {}, admin).data.map(u => u.UserID).sort(), ['admin', 'fm02']);
+  assert.strictEqual(call('me', {}, local).auth, true); // their open session ends
+  assert.ok(!call('login', { userId: 'fm01', password: pw }).ok);
+  assert.match(call('deleteUser', { UserID: 'fm01' }, admin).error, /No such user/);
+});
+
 test('no token or unknown action is rejected', () => {
   const { call } = freshApp();
   assert.strictEqual(call('heaterSearch', { width: 1000 }).auth, true);
