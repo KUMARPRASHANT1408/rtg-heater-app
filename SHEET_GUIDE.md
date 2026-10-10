@@ -122,5 +122,7 @@ Don't delete Settings rows. **ChecklistFolderId** is filled automatically.
   1. Open **Extensions → Apps Script**.
   2. Pick **clearTestData** from the function list at the top and press **Run**.
 
-  It removes all test activity and starts the numbers again at 0001. It keeps your users, settings, heaters, parts, conveyors and materials, and puts every part back "In store".
+  It removes all test activity and starts the numbers again at 0001. It keeps your users, settings, heaters, parts, conveyors and materials. Every part goes back to the state you pasted it in: "In store", condition OK, maintenance OK, 0 joints, no last-maintained date. Lots that were split when issued (for example 8 of 10 cross beams) are joined back into one row. Consumable stock you entered yourself is **not** put back, so test consumables before you enter real stock.
+
+  Only run it while testing. After you go live it would wipe real tickets and reset damaged parts to OK.
 - **Never delete** row 1, your own admin user, Settings rows, or Counters rows while the app is in use.
