@@ -1169,7 +1169,7 @@
       }
       var html = '<div class="page-head"><div><h1>Heater maintenance</h1><p class="muted">After every joint, parts come back "maintenance due". The vendor logs the maintenance with the checklist, RTG verifies, and the parts are ready to issue again.</p></div></div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
-        stat('Parts waiting for maintenance', free.length, 'warn', 'log') +
+        stat('Parts due after a joint', free.filter(function (c) { return c.due; }).length, 'warn', 'log') +
         stat('Logs waiting for RTG check', waiting.length, 'warn', 'verify') +
         stat('Verified this month', logs.filter(function (l) { return l.Status === 'Verified' && String(l.VerifiedOn).slice(0, 7) === month; }).length, '', 'all') + '</div>' +
         '<div class="chips">' + [['log', 'Log maintenance'], ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].map(function (c) {
@@ -1177,17 +1177,24 @@
         }).join('') + '</div>';
 
       if (show === 'log') {
-        // Group the parts by heater set so a whole set can be ticked at once.
+        // Group the parts by heater set so a whole set can be ticked at once. Sets due after a joint come first.
         var groups = {}, order = [];
         free.forEach(function (c) {
           var k = c.ModelName + (c.SetNo ? ' · set ' + c.SetNo : '');
           if (!groups[k]) { groups[k] = []; order.push(k); }
           groups[k].push(c);
         });
+        var isDue = function (k) { return groups[k].some(function (c) { return c.due; }); };
+        order.sort(function (a, b) { return (isDue(b) - isDue(a)) || a.localeCompare(b, undefined, { numeric: true }); });
+        var firstRoutine = order.filter(function (k) { return !isDue(k); })[0];
+        var lastDone = function (k) { return groups[k].map(function (c) { return String(c.LastInspected || ''); }).sort()[0] || ''; };
         html += free.length ? '<form id="form-mlog" class="stack">' +
-          '<div class="card stack"><h2>1. Which parts did you maintain?</h2><p class="muted small">Tick a whole set, or open it to tick single parts.</p>' +
+          '<div class="card stack"><h2>1. Which parts did you maintain?</h2><p class="muted small">Tick a whole set, or open it to tick single parts. Heaters back from a joint are at the top; every other heater in the store is below for routine maintenance.</p>' +
+          (isDue(order[0]) ? '' : '<p class="small muted">No heater is due after a joint right now.</p>') +
           order.map(function (k, gi) {
-            return '<details class="mset"><summary><span class="mset-head"><input type="checkbox" data-group="' + gi + '" style="min-height:auto"> <b>' + esc(k) + '</b> <span class="muted small">' + groups[k].length + ' part(s)</span></span></summary>' +
+            var tag = isDue(k) ? '<span class="pill warn">Due after joint</span>' : '<span class="pill none">Last maintained ' + esc(lastDone(k) || 'not recorded') + '</span>';
+            return (k === firstRoutine ? '<h3 class="small muted" style="margin:10px 0 0;text-transform:uppercase;letter-spacing:.04em">Other heaters in store: routine maintenance</h3>' : '') +
+              '<details class="mset"><summary><span class="mset-head"><input type="checkbox" data-group="' + gi + '" style="min-height:auto"> <b>' + esc(k) + '</b> ' + tag + ' <span class="muted small">' + groups[k].length + ' part(s)</span></span></summary>' +
               '<div class="table-wrap"><table><tbody>' + groups[k].map(function (c) {
                 var damaged = c.Condition !== 'OK';
                 return '<tr><td style="width:36px"><input type="checkbox" data-part="' + esc(c.ComponentID) + '" data-g="' + gi + '" style="min-height:auto"></td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(c.ComponentName) +
@@ -1202,7 +1209,7 @@
           '<div class="card stack"><h2>3. Attach the filled checklist</h2><p class="muted small">Take a clear photo of the signed checklist, or attach a PDF.</p>' +
           '<label>Checklist<input type="file" name="file" accept="image/*,application/pdf" required></label></div>' +
           '<div class="alert error hidden" id="mlog-error"></div><div class="actions"><span class="muted small" id="mlog-count">0 parts selected</span><button class="btn" type="submit">Send to RTG for checking</button></div></form>'
-          : '<div class="card"><p class="muted">No parts are waiting for maintenance right now. 👍</p></div>';
+          : '<div class="card"><p class="muted">No heater parts are in the store right now, or every part is already in a log waiting for RTG.</p></div>';
       } else {
         var list = show === 'verify' ? waiting : logs;
         html += '<div class="stack">' + (list.map(function (l) {

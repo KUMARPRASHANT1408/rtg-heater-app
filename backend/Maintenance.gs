@@ -29,16 +29,17 @@ function pendingLogIds_(logs) {
   return ids;
 }
 
-// Parts back in the store that need maintenance, and whether a log for them is already waiting.
+// Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
+// Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
   if (!canLogMaintenance_(user)) throw new Error('You do not have permission for this.');
   var models = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
-  return readTable('Components').filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE && c.Condition !== CONDITION.SCRAPPED; })
+  return readTable('Components').filter(function (c) { return c.Status === STATUS.IN_STORE && c.Condition !== CONDITION.SCRAPPED; })
     .map(function (c) {
       return { ComponentID: c.ComponentID, ModelID: c.ModelID, ModelName: models[c.ModelID] || c.ModelID, SetNo: c.SetNo, ComponentName: c.ComponentName,
-               Condition: c.Condition, JointsSinceMaintenance: c.JointsSinceMaintenance, Remarks: c.Remarks, pendingLog: pending[c.ComponentID] || '' };
+               Condition: c.Condition, due: c.MaintenanceStatus === MAINT.DUE, LastInspected: c.LastInspected, JointsSinceMaintenance: c.JointsSinceMaintenance, Remarks: c.Remarks, pendingLog: pending[c.ComponentID] || '' };
     });
 }
 
@@ -56,7 +57,7 @@ function logMaintenance(user, d) {
   var due = {};
   maintenanceDue(user).forEach(function (c) { due[c.ComponentID] = c; });
   ids.forEach(function (id) {
-    if (!due[id]) throw new Error(id + ' is not waiting for maintenance.');
+    if (!due[id]) throw new Error(id + ' is not in the store, so it cannot be logged.');
     if (due[id].pendingLog) throw new Error(id + ' is already in log ' + due[id].pendingLog + ', waiting for RTG to verify.');
   });
   var repaired = parseList_(d.RepairedIDs).filter(function (id) { return ids.indexOf(id) >= 0 && due[id].Condition !== CONDITION.OK; });
