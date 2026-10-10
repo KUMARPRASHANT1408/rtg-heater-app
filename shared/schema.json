@@ -94,7 +94,10 @@
     "ReturnedOn",
     "ClosedBy",
     "ClosedOn",
-    "LastOverdueMail"
+    "LastOverdueMail",
+    "ReturnRequestedBy",
+    "ReturnRequestedOn",
+    "ReturnNote"
   ],
   "TicketItems": [
     "TicketNo",
@@ -106,7 +109,8 @@
     "QtyIn",
     "ConditionIn",
     "ReturnedOn",
-    "Remarks"
+    "Remarks",
+    "ReturnDeclaredOn"
   ],
   "Issues": [
     "IssueNo",
@@ -118,7 +122,11 @@
     "FMExplanation",
     "ClosedBy",
     "ClosedOn",
-    "Status"
+    "Status",
+    "FMActionPlan",
+    "ExplainedBy",
+    "ExplainedOn",
+    "ClosingRemark"
   ],
   "TransferRequests": [
     "TransferNo",

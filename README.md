@@ -61,13 +61,14 @@ A second flow: **When a new email arrives (V3)**, Subject Filter `RTG-HEATER-EXP
 **Apply to each** attachment → **Create file** (SharePoint or OneDrive) in your folder with File Name `RTG-Heater-Export.xlsx` (a fixed name, so Power BI always reads the latest; turn on overwrite, or add a "Delete file" step before it).
 
 ### 5. Power Automate: send the app's mails from company mail
-The script sends notification mails to `CompanyInbox` with the subject `[RTG-NOTIFY] <type> <number>` and a JSON body like:
+The script sends notification mails to `CompanyInbox` with the subject `[RTG-NOTIFY] <type> <number>`. The mail shows the readable message
+(with a grey line saying who it is meant for) and carries a small attachment `rtg-notify.json` like:
 ```json
 {"type":"REQUEST_REJECTED","ref":"RTGH0007","to":"vendor@x.com","cc":"rtg@x.com","subject":"Request RTGH0007 rejected","html":"<p>...</p>"}
 ```
 Create one automated cloud flow:
-1. Trigger **When a new email arrives (V3)** with *Subject Filter* = `[RTG-NOTIFY]`. Optionally restrict *From* to the Google account's address.
-2. **Html to text** on the *Body* (Gmail plain text mails sometimes arrive as HTML in Outlook), then **Parse JSON** on the result with this schema:
+1. Trigger **When a new email arrives (V3)** with *Subject Filter* = `[RTG-NOTIFY]`, *Include Attachments* = Yes. Optionally restrict *From* to the Google account's address.
+2. **Parse JSON** with *Content* = the expression `base64ToString(triggerOutputs()?['body/attachments'][0]?['contentBytes'])` and this schema:
    ```json
    {"type":"object","properties":{"type":{"type":"string"},"ref":{"type":"string"},"to":{"type":"string"},"cc":{"type":"string"},"subject":{"type":"string"},"html":{"type":"string"}}}
    ```

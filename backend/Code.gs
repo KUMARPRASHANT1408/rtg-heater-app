@@ -23,6 +23,8 @@ var ACTIONS = {
   issueTicket:    { roles: ADMIN, run: function (u, d) { return issueTicket(u, d); } },
   returnTicket:   { roles: ADMIN, run: function (u, d) { return returnTicket(u, d); } },
   closeIssue:     { roles: ADMIN, run: function (u, d) { return closeIssue(u, d); } },
+  declareReturn:  { roles: null,  run: function (u, d) { return declareReturn(u, d); } },
+  explainIssue:   { roles: null,  run: function (u, d) { return explainIssue(u, d); } },
   maintenance:    { roles: ADMIN, run: function (u, d) { return completeMaintenance(u, d); } },
   markFound:      { roles: ADMIN, run: function (u, d) { return markFound(u, d); } },
   raiseTransfer:  { roles: null,  run: function (u, d) { return raiseTransfer(u, d); } },

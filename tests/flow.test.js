@@ -145,3 +145,45 @@ test('issuing part of a lot splits it so the rest stays in store', () => {
   const comps = ok('components', {}, admin).filter((c) => c.ComponentName === 'Spare bolts');
   assert.deepStrictEqual(comps.map((c) => [c.ComponentID, c.Qty, c.Status]), [['HM-03-BOLTS', 6, 'In store'], ['HM-03-BOLTS/' + TicketNo, 4, 'Issued']]);
 });
+
+test('FM hands back, RTG inspects, FM explains, RTG closes', () => {
+  const { ctx, call, ok, admin, fm, notes } = app();
+  const { RequestNo } = ok('raiseRequest', requestData(), fm);
+  const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
+  const picks = ok('getRequest', { no: TicketNo }, admin).suggestion.picks;
+  ok('issueTicket', { TicketNo, items: picks }, admin);
+  const items = ok('getRequest', { no: TicketNo }, fm).items;
+  // A vendor login (not FM, did not raise it) cannot hand it back.
+  const vpw = ok('saveUser', { UserID: 'v1', Name: 'Vendor', Role: 'Local', Team: 'Vendor' }, admin).tempPassword;
+  const vendor = ok('login', { userId: 'v1', password: vpw }).token;
+  assert.match(call('declareReturn', { TicketNo, ComponentIDs: items.map((i) => i.ComponentID) }, vendor).error, /Only the FM team/);
+  // FM hands back everything; overdue reminders stop while RTG inspects.
+  ok('declareReturn', { TicketNo, ComponentIDs: items.map((i) => i.ComponentID), note: 'Joint done' }, fm);
+  assert.match(call('declareReturn', { TicketNo, ComponentIDs: items.map((i) => i.ComponentID) }, fm).error, /at least one/);
+  assert.ok(notes().some((n) => n.type === 'RETURN_DECLARED'));
+  ctx.updateWhere('Tickets', 'TicketNo', TicketNo, { ExpectedReturnDate: '2020-01-01' });
+  assert.strictEqual(ctx.sendOverdueMails(), 0);
+  // RTG finds the bag damaged.
+  const ret = items.map((i) => ({ ComponentID: i.ComponentID, result: i.ComponentName === 'Pressure bag' ? 'Damaged' : 'OK' }));
+  const { issueNo } = ok('returnTicket', { TicketNo, items: ret, issueText: 'Pressure bag torn' }, admin);
+  assert.match(notes().find((n) => n.type === 'HEATER_ISSUE').html, /action you will take/);
+  // RTG can't close before FM explains (unless they type it in).
+  assert.match(call('closeIssue', { IssueNo: issueNo }, admin).error, /not explained/);
+  assert.match(call('explainIssue', { IssueNo: issueNo, explanation: 'Sharp edge on belt' }, fm).error, /Action you will take/);
+  ok('explainIssue', { IssueNo: issueNo, explanation: 'Sharp edge on belt', actionPlan: 'Will trim edges before placing the bag' }, fm);
+  const ex = notes().find((n) => n.type === 'ISSUE_EXPLAINED');
+  assert.match(ex.html, /trim edges/);
+  assert.strictEqual(ok('getRequest', { no: TicketNo }, fm).ticket.Status, 'Returned with issue');
+  assert.strictEqual(ok('closeIssue', { IssueNo: issueNo, remark: 'Accepted' }, admin).status, 'Closed');
+  assert.ok(notes().some((n) => n.type === 'TICKET_CLOSED'));
+});
+
+test('notification mail is readable and carries the JSON as an attachment', () => {
+  const { ctx, ok, fm } = app();
+  ok('raiseRequest', requestData(), fm);
+  const m = ctx.__mails.find((x) => x.subject === '[RTG-NOTIFY] NEW_REQUEST RTGH0001');
+  assert.match(m.htmlBody, /New heater request/);
+  assert.doesNotMatch(m.htmlBody, /"type":/);
+  assert.strictEqual(m.attachments[0].name, 'rtg-notify.json');
+  assert.strictEqual(JSON.parse(m.attachments[0].data).type, 'NEW_REQUEST');
+});

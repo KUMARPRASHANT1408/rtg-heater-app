@@ -67,13 +67,13 @@ CONS_BATCHES = [
 CONS_TXNS = [
     {"Date": f"2026-{m:02d}-{d:02d}", "ItemID": item, "Type": "Issue", "Qty": q, "BatchNo": "SAMPLE", "Department": dept, "Conveyor": "", "Ref": "SAMPLE", "EnteredBy": "admin"}
     for m, d, item, q, dept in [
-        (5, 6, "C01", 2, "FM Sinter"), (5, 20, "C04", 3, "FM Raw Material"), (6, 3, "C01", 1, "FM Blast Furnace"), (6, 18, "C11", 4, "FM Sinter"),
-        (7, 9, "C01", 3, "FM Raw Material"), (7, 22, "C04", 2, "FM Sinter"), (8, 5, "C01", 2, "FM Sinter"), (8, 27, "C11", 5, "FM Blast Furnace"),
-        (9, 4, "C01", 1, "FM Raw Material"), (9, 16, "C04", 4, "FM Blast Furnace"), (9, 29, "C08", 1, "FM Sinter"), (10, 2, "C01", 2, "FM Sinter")]
+        (5, 6, "C01", 2, "FM"), (5, 20, "C04", 3, "FM"), (6, 3, "C01", 1, "FM"), (6, 18, "C11", 4, "FM"),
+        (7, 9, "C01", 3, "FM"), (7, 22, "C04", 2, "FM"), (8, 5, "C01", 2, "FM"), (8, 27, "C11", 5, "FM"),
+        (9, 4, "C01", 1, "FM"), (9, 16, "C04", 4, "FM"), (9, 29, "C08", 1, "FM"), (10, 2, "C01", 2, "FM")]
 ]
 
 SAMPLE = {"HeaterModels": MODELS, "ComponentTypes": TYPES, "Components": build_components(), "Conveyors": CONVEYORS,
-          "Departments": [{"Department": d} for d in ["FM Raw Material", "FM Sinter", "FM Blast Furnace", "RTG"]],
+          "Departments": [{"Department": d} for d in ["FM", "RTG"]],
           "Consumables": CONS_ROWS, "ConsumableBatches": CONS_BATCHES, "ConsumableTransactions": CONS_TXNS}
 
 GUIDE = {

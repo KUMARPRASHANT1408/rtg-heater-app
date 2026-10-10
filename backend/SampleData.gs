@@ -1822,13 +1822,7 @@ var SAMPLE_DATA = {
  ],
  "Departments": [
   {
-   "Department": "FM Raw Material"
-  },
-  {
-   "Department": "FM Sinter"
-  },
-  {
-   "Department": "FM Blast Furnace"
+   "Department": "FM"
   },
   {
    "Department": "RTG"
@@ -2006,7 +2000,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 2,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2017,7 +2011,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 3,
    "BatchNo": "SAMPLE",
-   "Department": "FM Raw Material",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2028,7 +2022,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 1,
    "BatchNo": "SAMPLE",
-   "Department": "FM Blast Furnace",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2039,7 +2033,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 4,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2050,7 +2044,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 3,
    "BatchNo": "SAMPLE",
-   "Department": "FM Raw Material",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2061,7 +2055,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 2,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2072,7 +2066,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 2,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2083,7 +2077,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 5,
    "BatchNo": "SAMPLE",
-   "Department": "FM Blast Furnace",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2094,7 +2088,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 1,
    "BatchNo": "SAMPLE",
-   "Department": "FM Raw Material",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2105,7 +2099,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 4,
    "BatchNo": "SAMPLE",
-   "Department": "FM Blast Furnace",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2116,7 +2110,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 1,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"
@@ -2127,7 +2121,7 @@ var SAMPLE_DATA = {
    "Type": "Issue",
    "Qty": 2,
    "BatchNo": "SAMPLE",
-   "Department": "FM Sinter",
+   "Department": "FM",
    "Conveyor": "",
    "Ref": "SAMPLE",
    "EnteredBy": "admin"

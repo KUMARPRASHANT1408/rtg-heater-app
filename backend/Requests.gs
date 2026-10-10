@@ -228,7 +228,8 @@ function returnTicket(admin, d) {
     queueMail('HEATER_ISSUE', tk.TicketNo, contacts_(r), getSetting('OverdueCC', ''), 'Ticket ' + tk.TicketNo + ': damaged or missing heater parts (' + issueNo + ')',
       mailHtml_('Ticket ' + tk.TicketNo + ' has an issue', [['Conveyor', tk.ConveyorName], ['Vendor team', r.VendorTeam], ['Issue', d.issueText]]
         .concat(problems.map(function (p) { return [p.id + ' ' + p.name, p.result + (p.remarks ? ': ' + p.remarks : '')]; })),
-        'The following heater parts were returned damaged or are missing. Kindly give an explanation to the RTG Store.'));
+        'The following heater parts were returned damaged or are missing. Kindly give an explanation: log in to the app, open ticket ' + tk.TicketNo +
+        ', and write what happened and the action you will take. The ticket stays open until the RTG Store accepts it.'));
   } else {
     var openIssue = readTable('Issues').some(function (i) { return i.TicketNo === tk.TicketNo && i.Status !== 'Closed'; });
     status = openIssue ? TKT.ISSUE : stillOut ? TKT.PARTLY : TKT.CLOSED;
@@ -250,20 +251,79 @@ function returnTicket(admin, d) {
   return { status: status, issueNo: issueNo, stillOut: stillOut };
 }
 
-// Admin records the FM explanation and closes the issue (and the ticket, if nothing is still on site).
+// FM (whoever raised the request, anyone in the FM team, or an admin) may hand back and explain.
+function canActForFM_(user, req) {
+  return user.Role === 'Admin' || user.Team === 'FM' || (req && req.RaisedBy === user.UserID);
+}
+
+// FM says which parts they have handed back to the store. RTG then inspects them (returnTicket).
+function declareReturn(user, d) {
+  var tk = findOne('Tickets', 'TicketNo', d.TicketNo);
+  if (!tk) throw new Error('No such ticket.');
+  var r = findOne('Requests', 'RequestNo', tk.RequestNo) || {};
+  if (!canActForFM_(user, r)) throw new Error('Only the FM team can return this heater.');
+  if (OPEN_TICKET.indexOf(tk.Status) < 0) throw new Error('This ticket is ' + tk.Status.toLowerCase() + ', nothing to return.');
+  var ids = parseList_(d.ComponentIDs);
+  var items = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn && !i.ReturnDeclaredOn && ids.indexOf(i.ComponentID) >= 0; });
+  if (!items.length) throw new Error('Choose at least one component you are handing back.');
+  var now = new Date(), chosen = {};
+  items.forEach(function (i) { chosen[i.ComponentID] = true; });
+  updateRows('TicketItems', function (o) { return o.TicketNo === tk.TicketNo && chosen[o.ComponentID] ? { ReturnDeclaredOn: now } : null; });
+  updateWhere('Tickets', 'TicketNo', tk.TicketNo, { ReturnRequestedBy: user.UserID, ReturnRequestedOn: now, ReturnNote: d.note || '' });
+  var left = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn && !i.ReturnDeclaredOn; }).length;
+  queueMail('RETURN_DECLARED', tk.TicketNo, getSetting('RTGTeamMail', ''), '', 'Heater returned on ticket ' + tk.TicketNo + ': please inspect',
+    mailHtml_('FM has returned heater parts on ticket ' + tk.TicketNo, [['Conveyor', tk.ConveyorName], ['Returned by', user.Name], ['Note', d.note || '']]
+      .concat(itemsTable_(items)).concat(left ? [['Still on site', left + ' component(s)']] : []),
+      'Please inspect the parts in the app and mark anything damaged or missing.'));
+  audit(user.UserID, 'declareReturn', tk.TicketNo, { items: items.length });
+  return { declared: items.length, stillOnSite: left };
+}
+
+// FM answers an issue: what happened and what they will do. RTG then accepts it and closes.
+function explainIssue(user, d) {
+  var iss = findOne('Issues', 'IssueNo', d.IssueNo);
+  if (!iss) throw new Error('No such issue.');
+  var tk = findOne('Tickets', 'TicketNo', iss.TicketNo) || {};
+  var r = findOne('Requests', 'RequestNo', tk.RequestNo) || {};
+  if (!canActForFM_(user, r)) throw new Error('Only the FM team can explain this issue.');
+  if (iss.Status === 'Closed') throw new Error('This issue is already closed.');
+  required_(d, [['explanation', 'Explanation'], ['actionPlan', 'Action you will take']]);
+  var now = new Date();
+  updateWhere('Issues', 'IssueNo', iss.IssueNo, { FMExplanation: d.explanation, FMActionPlan: d.actionPlan, ExplainedBy: user.UserID, ExplainedOn: now, Status: 'Explained' });
+  var raiser = findOne('Users', 'UserID', iss.RaisedBy);
+  queueMail('ISSUE_EXPLAINED', iss.IssueNo, [getSetting('RTGTeamMail', ''), raiser && raiser.Email].filter(String).join(','), contacts_(r),
+    'FM explanation for ' + iss.IssueNo + ' on ticket ' + iss.TicketNo,
+    mailHtml_('FM has explained issue ' + iss.IssueNo, [['Ticket', iss.TicketNo], ['Issue', iss.Description], ['Explained by', user.Name],
+      ['What happened', d.explanation], ['Action they will take', d.actionPlan]], 'Please review it in the app and close the ticket if you accept it.'));
+  audit(user.UserID, 'explainIssue', iss.IssueNo);
+  return { status: 'Explained' };
+}
+
+// Admin accepts the FM explanation and closes the issue (and the ticket, if nothing is still on site).
+// If FM explained outside the app, the admin can type it in instead.
 function closeIssue(admin, d) {
   var iss = findOne('Issues', 'IssueNo', d.IssueNo);
   if (!iss) throw new Error('No such issue.');
   if (iss.Status === 'Closed') throw new Error('This issue is already closed.');
-  if (!String(d.explanation || '').trim()) throw new Error('Record the FM explanation before closing.');
-  var now = new Date();
-  updateWhere('Issues', 'IssueNo', iss.IssueNo, { FMExplanation: d.explanation, Status: 'Closed', ClosedBy: admin.UserID, ClosedOn: now });
+  var patch = { Status: 'Closed', ClosedBy: admin.UserID, ClosedOn: new Date(), ClosingRemark: d.remark || '' };
+  if (!iss.FMExplanation) {
+    if (!String(d.explanation || '').trim()) throw new Error('FM has not explained yet. Wait for their explanation, or type in what they told you.');
+    patch.FMExplanation = d.explanation;
+  }
+  var now = patch.ClosedOn;
+  updateWhere('Issues', 'IssueNo', iss.IssueNo, patch);
   var openIssues = readTable('Issues').filter(function (i) { return i.TicketNo === iss.TicketNo && i.Status !== 'Closed'; }).length;
   var stillOut = readTable('TicketItems').filter(function (i) { return i.TicketNo === iss.TicketNo && !i.ConditionIn; }).length;
   var status = openIssues ? TKT.ISSUE : stillOut ? TKT.PARTLY : TKT.CLOSED;
-  var patch = { Status: status };
-  if (status === TKT.CLOSED) { patch.ClosedBy = admin.UserID; patch.ClosedOn = now; }
-  updateWhere('Tickets', 'TicketNo', iss.TicketNo, patch);
+  var tpatch = { Status: status };
+  if (status === TKT.CLOSED) { tpatch.ClosedBy = admin.UserID; tpatch.ClosedOn = now; }
+  updateWhere('Tickets', 'TicketNo', iss.TicketNo, tpatch);
+  if (status === TKT.CLOSED) {
+    var tk = findOne('Tickets', 'TicketNo', iss.TicketNo) || {};
+    var r = findOne('Requests', 'RequestNo', tk.RequestNo) || {};
+    queueMail('TICKET_CLOSED', iss.TicketNo, contacts_(r), '', 'Ticket ' + iss.TicketNo + ' closed',
+      mailHtml_('Ticket ' + iss.TicketNo + ' is closed', [['Issue', iss.IssueNo], ['RTG remark', d.remark || '']], 'The RTG Store accepted the explanation and closed the ticket.'));
+  }
   audit(admin.UserID, 'closeIssue', iss.IssueNo);
   return { status: status };
 }

@@ -405,6 +405,8 @@
     ];
     if (r.Status !== 'Rejected') {
       list.push({ label: 'Issued', done: !!(tk && tk.IssuedOn), when: tk && tk.IssuedOn });
+      var handed = (d.items || []).filter(function (i) { return i.ReturnDeclaredOn; }).map(function (i) { return i.ReturnDeclaredOn; }).sort();
+      list.push({ label: 'Handed back by FM', done: handed.length > 0 || !!(tk && tk.ReturnedOn), when: handed[handed.length - 1] });
       list.push({ label: 'Returned', done: !!(tk && tk.ReturnedOn), when: tk && tk.ReturnedOn, bad: tk && tk.Status === 'Returned with issue' });
       list.push({ label: 'Closed', done: !!(tk && tk.Status === 'Closed'), when: tk && tk.ClosedOn });
     }
@@ -434,7 +436,7 @@
         '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th class="num">Qty</th><th>Returned</th></tr></thead><tbody>' +
         d.items.map(function (i) {
           var cond = i.ConditionIn;
-          var pill = !cond ? '<span class="pill info">On site</span>' : cond === 'OK' ? '<span class="pill good">OK</span>' : '<span class="pill bad">' + esc(cond) + '</span>';
+          var pill = !cond ? (i.ReturnDeclaredOn ? '<span class="pill warn">Handed back, to inspect</span>' : '<span class="pill info">On site</span>') : cond === 'OK' ? '<span class="pill good">OK</span>' : '<span class="pill bad">' + esc(cond) + '</span>';
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (i.Remarks ? '<div class="small muted">' + esc(i.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(i.QtyOut) + '</td><td>' + pill + '</td></tr>';
         }).join('') + '</tbody></table></div>' :
         '<div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
@@ -445,19 +447,52 @@
       html += '<div class="card stack" style="margin-top:16px"><h2>Issues</h2>' + d.issues.map(function (i) {
         var parts = [];
         try { parts = JSON.parse(i.AffectedComponents || '[]'); } catch (e) {}
-        return '<div class="issue"><div class="model-head"><b>' + esc(i.IssueNo) + '</b>' + (i.Status === 'Closed' ? '<span class="pill good">Closed</span>' : '<span class="pill bad">Open</span>') + '</div>' +
+        var pill = i.Status === 'Closed' ? '<span class="pill good">Closed</span>' : i.Status === 'Explained' ? '<span class="pill warn">Explained, RTG to review</span>' : '<span class="pill bad">Waiting for FM explanation</span>';
+        var body = '<div class="issue"><div class="model-head"><b>' + esc(i.IssueNo) + '</b>' + pill + '</div>' +
           '<p>' + esc(i.Description) + '</p><p class="small muted">' + parts.map(function (p) { return esc(p.id) + ' ' + esc(p.name) + ': ' + esc(p.result) + (p.remarks ? ' (' + esc(p.remarks) + ')' : ''); }).join(' · ') + '</p>' +
-          (i.FMExplanation ? '<p class="small"><b>FM explanation:</b> ' + esc(i.FMExplanation) + '</p>' : '') +
-          (isAdmin() && i.Status !== 'Closed' ? '<form class="row" data-issue="' + esc(i.IssueNo) + '"><label>FM explanation received<textarea name="explanation" rows="2" required></textarea></label><div><button class="btn" type="submit">Record &amp; close issue</button></div></form>' : '') +
-          '</div>';
+          (i.FMExplanation ? '<p class="small"><b>What happened (FM):</b> ' + esc(i.FMExplanation) + '</p>' : '') +
+          (i.FMActionPlan ? '<p class="small"><b>Action FM will take:</b> ' + esc(i.FMActionPlan) + '</p>' : '') +
+          (i.ClosingRemark ? '<p class="small"><b>RTG remark:</b> ' + esc(i.ClosingRemark) + '</p>' : '');
+        if (i.Status === 'Open' && !isAdmin() && fmCanAct(d)) {
+          body += '<form class="stack" data-explain="' + esc(i.IssueNo) + '"><label>What happened<textarea name="explanation" rows="2" required></textarea></label>' +
+            '<label>What action you will take<textarea name="actionPlan" rows="2" required></textarea></label>' +
+            '<div class="actions"><button class="btn" type="submit">Send explanation to RTG</button></div></form>';
+        }
+        if (isAdmin() && i.Status === 'Explained') {
+          body += '<form class="row" data-issue="' + esc(i.IssueNo) + '"><label>Your remark (optional)<input name="remark"></label><div><button class="btn" type="submit">Accept &amp; close</button></div></form>';
+        }
+        if (isAdmin() && i.Status === 'Open') {
+          body += '<details><summary class="small">FM explained outside the app? Type it in</summary><form class="row" data-issue="' + esc(i.IssueNo) + '" style="margin-top:8px">' +
+            '<label>FM explanation<textarea name="explanation" rows="2" required></textarea></label><div><button class="btn secondary" type="submit">Record &amp; close</button></div></form></details>';
+        }
+        return body + '</div>';
       }).join('') + '</div>';
     }
 
     html += transferSection(d, status);
     if (isAdmin()) html += adminPanel(d, status, outstanding);
+    else html += fmReturnPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
     wireTransferSection(d, function (msg) { if (msg) toast(msg); renderTicket(d.ticket.TicketNo); });
+  }
+
+  function fmCanAct(d) {
+    return isAdmin() || state.user.Team === 'FM' || d.request.RaisedBy === state.user.UserID;
+  }
+
+  // FM hands the heater back: ticks what they are returning; RTG inspects it next.
+  function fmReturnPanel(d, status, outstanding) {
+    var open = outstanding.filter(function (i) { return !i.ReturnDeclaredOn; });
+    if (!fmCanAct(d) || !open.length || ['Issued', 'Partly returned', 'Returned with issue'].indexOf(status) < 0) return '';
+    return '<div class="card stack" style="margin-top:16px"><h2>Return the heater</h2>' +
+      '<p class="muted small">Tick the parts you are handing back to the RTG Store. Untick anything still on site. RTG will then inspect each part.</p>' +
+      '<form id="form-handback" class="stack"><div class="table-wrap"><table><thead><tr><th style="width:40px"></th><th>Component ID</th><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
+      open.map(function (i) {
+        return '<tr><td><input type="checkbox" checked data-hb="' + esc(i.ComponentID) + '" style="min-height:auto"></td><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + '</td><td class="num">' + esc(i.QtyOut) + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<label>Note for RTG (optional)<input name="note" placeholder="e.g. joint completed, one cable still at site"></label>' +
+      '<div class="alert error hidden" id="handback-error"></div><div class="actions"><button class="btn" type="submit">Hand back to RTG Store</button></div></form></div>';
   }
 
   function adminPanel(d, status, outstanding) {
@@ -487,12 +522,13 @@
     }
     if (outstanding.length && ['Issued', 'Partly returned', 'Returned with issue'].indexOf(status) >= 0) {
       return '<div class="card stack" style="margin-top:16px"><h2>Return &amp; inspection</h2>' +
-        '<p class="muted small">Check every component. Anything not marked comes back later and keeps the ticket open.</p>' +
+        '<p class="muted small">Parts FM handed back are set to OK. Change any that are damaged or missing. Anything left as "Not returned" stays on site and keeps the ticket open.</p>' +
         '<form id="form-return" class="stack"><div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" id="all-ok">Mark all OK</button></div>' +
         '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th>Result</th><th>Remarks</th></tr></thead><tbody>' +
         outstanding.map(function (i, n) {
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (Number(i.QtyOut) > 1 ? ' x' + esc(i.QtyOut) : '') + '</td><td><select data-res="' + n + '">' +
-            ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option>' + o + '</option>'; }).join('') + '</select></td>' +
+            ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option' + (i.ReturnDeclaredOn && o === 'OK' ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' +
+            (i.ReturnDeclaredOn ? '<div class="small muted">FM handed back ' + esc(String(i.ReturnDeclaredOn).slice(0, 10)) + '</div>' : '') + '</td>' +
             '<td><input data-rem="' + n + '" placeholder="Optional"></td></tr>';
         }).join('') + '</tbody></table></div>' +
         '<label id="issue-box" class="hidden">Describe the damage / missing parts (mailed to the FM team asking for an explanation)<textarea name="issueText" rows="3"></textarea></label>' +
@@ -508,8 +544,28 @@
     view.querySelectorAll('form[data-issue]').forEach(function (f) {
       f.addEventListener('submit', function (e) {
         e.preventDefault();
-        API.call('closeIssue', { IssueNo: f.dataset.issue, explanation: formData(f).explanation }).then(function (res) { reload('Issue closed. Ticket is now ' + res.status.toLowerCase()); }).catch(function (err) { toast(err.message); });
+        var fd = formData(f);
+        API.call('closeIssue', { IssueNo: f.dataset.issue, explanation: fd.explanation, remark: fd.remark }).then(function (res) { reload('Issue closed. Ticket is now ' + res.status.toLowerCase()); }).catch(function (err) { toast(err.message); });
       });
+    });
+    view.querySelectorAll('form[data-explain]').forEach(function (f) {
+      f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var fd = formData(f), btn = $('button', f);
+        busy(btn, true);
+        API.call('explainIssue', { IssueNo: f.dataset.explain, explanation: fd.explanation, actionPlan: fd.actionPlan })
+          .then(function () { reload('Explanation sent to the RTG Store'); }).catch(function (err) { toast(err.message); busy(btn, false); });
+      });
+    });
+    var hand = $('#form-handback');
+    if (hand) hand.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var ids = Array.prototype.map.call(hand.querySelectorAll('[data-hb]:checked'), function (x) { return x.dataset.hb; });
+      var btn = $('button[type=submit]', hand);
+      busy(btn, true);
+      API.call('declareReturn', { TicketNo: tk.TicketNo, ComponentIDs: ids, note: hand.note.value.trim() })
+        .then(function (res) { reload('Handed back ' + res.declared + ' component(s). RTG will inspect them.'); })
+        .catch(function (err) { showError($('#handback-error'), err); busy(btn, false); });
     });
     var decide = $('#form-decide');
     if (decide) decide.addEventListener('click', function (e) {
@@ -834,7 +890,7 @@
   function downloadTemplate(items) {
     var lines = [UPLOAD_COLS.join(','),
       [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Receipt', '10', 'B123', '2027-03-31', '', '', 'Challan 456', ''].join(','),
-      [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Issue', '2', '', '', 'FM Sinter', 'CNV-205', '', '']. join(',')];
+      [todayStr(), items[0] ? items[0].ItemName : 'SAR Jointing Kit', 'Issue', '2', '', '', 'FM', 'CNV-205', '', '']. join(',')];
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
     a.download = 'consumables_upload_template.csv';
