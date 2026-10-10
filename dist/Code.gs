@@ -107,6 +107,7 @@ var ACTIONS = {
   listUsers:      { roles: ADMIN, run: function () { return listUsers(); } },
   saveUser:       { roles: ADMIN, run: function (u, d) { return saveUser(u, d); } },
   resetPassword:  { roles: ADMIN, run: function (u, d) { return resetPassword(u, d.UserID); } },
+  deleteUser:     { roles: ADMIN, run: function (u, d) { return deleteUser(u, d.UserID); } },
   raiseRequest:   { roles: null,  run: function (u, d) { return raiseRequest(u, d); } },
   listRequests:   { roles: null,  run: function () { return listRequests(); } },
   getRequest:     { roles: null,  run: function (u, d) { return getRequest(u, d); } },
@@ -551,6 +552,20 @@ function updateRows(name, fn) {
 // patches = {keyValue: {col: value}}
 function updateMany(name, keyCol, patches) {
   return updateRows(name, function (o) { return patches[String(o[keyCol])] || null; });
+}
+
+// Delete every row where keyCol === keyVal. Returns the number of rows deleted.
+function deleteWhere(name, keyCol, keyVal) {
+  var sh = sheet_(name);
+  var values = sh.getDataRange().getValues();
+  var k = values[0].indexOf(keyCol);
+  var deleted = 0;
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][k]) !== String(keyVal)) continue;
+    sh.deleteRows(r + 1, 1);
+    deleted++;
+  }
+  return deleted;
 }
 
 function findOne(name, keyCol, keyVal) {
@@ -4261,4 +4276,14 @@ function resetPassword(admin, userId) {
   updateWhere('Users', 'UserID', userId, { Salt: salt, PasswordHash: hashPassword(temp, salt), MustChangePassword: true });
   audit(admin.UserID, 'resetPassword', userId);
   return { tempPassword: temp };
+}
+
+// Removes a user for good. Their past requests, tickets and log entries keep their user ID and name.
+function deleteUser(admin, userId) {
+  var u = findOne('Users', 'UserID', userId);
+  if (!u) throw new Error('No such user.');
+  if (u.UserID === admin.UserID) throw new Error('You cannot delete your own account.');
+  deleteWhere('Users', 'UserID', userId);
+  audit(admin.UserID, 'deleteUser', userId, { Name: u.Name, Role: u.Role });
+  return { deleted: userId };
 }

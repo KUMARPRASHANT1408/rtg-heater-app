@@ -16,6 +16,7 @@ var ACTIONS = {
   listUsers:      { roles: ADMIN, run: function () { return listUsers(); } },
   saveUser:       { roles: ADMIN, run: function (u, d) { return saveUser(u, d); } },
   resetPassword:  { roles: ADMIN, run: function (u, d) { return resetPassword(u, d.UserID); } },
+  deleteUser:     { roles: ADMIN, run: function (u, d) { return deleteUser(u, d.UserID); } },
   raiseRequest:   { roles: null,  run: function (u, d) { return raiseRequest(u, d); } },
   listRequests:   { roles: null,  run: function () { return listRequests(); } },
   getRequest:     { roles: null,  run: function (u, d) { return getRequest(u, d); } },
