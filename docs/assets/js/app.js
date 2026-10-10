@@ -1209,16 +1209,17 @@
         // Group the parts by heater set so a whole set can be ticked at once. Sets due after a joint come first.
         var groups = {}, order = [];
         free.forEach(function (c) {
-          var k = c.ModelName + (c.SetNo ? ' · set ' + c.SetNo : '');
-          if (!groups[k]) { groups[k] = []; order.push(k); }
+          // A pair's own rows are only the parts its singles don't have; its other parts are listed under the singles.
+          var k = c.PairOf ? 'Pair ' + c.ModelID + ' (' + c.PairOf + '): parts only the pair has' : c.ModelName + (c.SetNo ? ' · set ' + c.SetNo : '');
+          if (!groups[k]) { groups[k] = []; groups[k].pair = !!c.PairOf; order.push(k); }
           groups[k].push(c);
         });
         var isDue = function (k) { return groups[k].some(function (c) { return c.due; }); };
-        order.sort(function (a, b) { return (isDue(b) - isDue(a)) || a.localeCompare(b, undefined, { numeric: true }); });
+        order.sort(function (a, b) { return (isDue(b) - isDue(a)) || (groups[a].pair - groups[b].pair) || a.localeCompare(b, undefined, { numeric: true }); });
         var firstRoutine = order.filter(function (k) { return !isDue(k); })[0];
         var lastDone = function (k) { return groups[k].map(function (c) { return String(c.LastInspected || ''); }).sort()[0] || ''; };
         html += free.length ? '<form id="form-mlog" class="stack">' +
-          '<div class="card stack"><h2>1. Which parts did you maintain?</h2><p class="muted small">Tick a whole set, or open it to tick single parts. Heaters back from a joint are at the top; every other heater in the store is below for routine maintenance.</p>' +
+          '<div class="card stack"><h2>1. Which parts did you maintain?</h2><p class="muted small">Tick a whole set, or open it to tick single parts. Heaters back from a joint are at the top; every other heater in the store is below for routine maintenance. A pair heater is maintained through its two single heaters; only the extra parts a pair has on its own are listed under the pair, at the end.</p>' +
           (isDue(order[0]) ? '' : '<p class="small muted">No heater is due after a joint right now.</p>') +
           order.map(function (k, gi) {
             var tag = isDue(k) ? '<span class="pill warn">Due after joint</span>' : '<span class="pill none">Last maintained ' + esc(lastDone(k) || 'not recorded') + '</span>';
