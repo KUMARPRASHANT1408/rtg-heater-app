@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.rtgstore.heater'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.rtgstore.heater'
+        minSdk 29
+        targetSdk 34
+        // Raise both numbers (and docs/app-version.json) when the Android shell changes.
+        // Website changes need no new APK: the app always loads the live site.
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Signing key: set the RTG_KEYSTORE secrets in GitHub (see android/README.md) so every new APK
+    // installs over the old one. Without them the build uses a temporary key: still installable,
+    // but a later APK would need the old app uninstalled first.
+    def keystore = System.getenv('RTG_KEYSTORE')
+    signingConfigs {
+        release {
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv('RTG_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('RTG_KEY_ALIAS')
+                keyPassword System.getenv('RTG_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
