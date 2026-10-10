@@ -307,7 +307,7 @@
     var tiles = '<div class="grid grid-4">' +
       tile('Total splice length', mm(r.totalLength), 'Each belt end') +
       tile('Steps', r.steps + ' × ' + r.step.step + ' mm', 'Overlap ' + r.overlapLength + ' mm') +
-      (c ? tile('Soak at 145 °C', c.soakUsed + ' min', 'Belt ' + c.thickness + ' mm thick') + tile('Total press time', rng(c.total, ' min'), 'Heat-up + soak + cool-down') : '') + '</div>';
+      (c ? tile('Soak at 145 ± 5 °C', c.soakUsed + ' min', 'Belt ' + c.thickness + ' mm thick') + tile('Total press time', rng(c.total, ' min'), 'Heat-up + soak + cool-down') : '') + '</div>';
     var joint = '<div class="card"><h2>1. Splice geometry</h2><p class="small muted">Point at any part of the drawing for its size.</p><div class="splice-wrap" id="splice">' + spliceSvg(r) + '<div class="tip hidden" id="splice-tip"></div></div>' +
       '<details><summary>All splice numbers</summary>' + kvTable([
       ['Rating of one ply', esc(r.plyRating) + ' N/mm', esc(r.rating) + ' ÷ ' + esc(r.plies) + ' plies'],
@@ -378,6 +378,9 @@
           if (ch.canvas.id === 'chart-temp') { g.fillStyle = cssVar('--text-3'); g.font = '12px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(p[2], (x1 + x2) / 2, a.bottom - 8); }
         });
         if (ch.canvas.id === 'chart-temp') {
+          var y150 = ch.scales.y.getPixelForValue(150), y140 = ch.scales.y.getPixelForValue(140);
+          g.save(); g.globalAlpha = 0.14; g.fillStyle = cssVar('--series-2'); g.fillRect(a.left, y150, a.right - a.left, y140 - y150); g.restore();
+          g.fillStyle = cssVar('--text-3'); g.font = '11px system-ui, sans-serif'; g.textAlign = 'left'; g.fillText('Cure 145 ± 5 °C', a.left + 4, y140 + 12);
           [[150, 'Max 150 °C'], [60, 'Release at 60 °C']].forEach(function (h) {
             var y = ch.scales.y.getPixelForValue(h[0]);
             g.save(); g.strokeStyle = cssVar('--text-3'); g.setLineDash([4, 4]); g.lineWidth = 1; g.beginPath(); g.moveTo(a.left, y); g.lineTo(a.right, y); g.stroke(); g.restore();
