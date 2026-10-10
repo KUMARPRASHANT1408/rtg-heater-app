@@ -1615,7 +1615,8 @@
           return '<tr><td><b>' + esc(u.UserID) + '</b></td><td>' + esc(u.Name) + '</td><td>' + esc(u.EmployeeID) + '</td><td>' +
             '<span class="pill ' + (u.Role === 'Admin' ? 'info' : u.Role === 'Local' ? 'good' : 'warn') + '">' + esc(u.Role) + '</span></td><td>' + esc(u.Team) + '</td><td>' + esc(u.Email) + '</td><td>' +
             (String(u.Active) === 'true' || u.Active === true ? 'Active' : '<span class="muted">Disabled</span>') + '</td><td style="white-space:nowrap">' +
-            '<button class="btn secondary small" data-edit="' + i + '" type="button">Edit</button> <button class="btn secondary small" data-reset="' + i + '" type="button">Reset password</button></td></tr>';
+            '<button class="btn secondary small" data-edit="' + i + '" type="button">Edit</button> <button class="btn secondary small" data-reset="' + i + '" type="button">Reset password</button>' +
+            (u.UserID === state.user.UserID ? '' : ' <button class="btn danger small" data-del="' + i + '" type="button">Delete</button>') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
       view.addEventListener('click', onUserClick);
     }).catch(handleError);
@@ -1629,6 +1630,16 @@
       var u = state.users[b.dataset.reset];
       if (!confirm('Reset the password for ' + u.Name + '?')) return;
       API.call('resetPassword', { UserID: u.UserID }).then(function (r) { showTempPassword(u.UserID, r.tempPassword); }).catch(function (err) { toast(err.message); });
+    }
+    if (b.dataset.del) {
+      var du = state.users[b.dataset.del];
+      if (!confirm('Delete ' + du.Name + ' (' + du.UserID + ')?\n\nThey will not be able to log in again. Their past requests and history stay.\nIf they may come back, use Edit and untick Active instead.')) return;
+      busy(b, true);
+      API.call('deleteUser', { UserID: du.UserID }).then(function () {
+        toast(du.Name + ' deleted');
+        view.removeEventListener('click', onUserClick);
+        renderUsers();
+      }).catch(function (err) { busy(b, false); toast(err.message); });
     }
   }
 

@@ -91,6 +91,20 @@ function updateMany(name, keyCol, patches) {
   return updateRows(name, function (o) { return patches[String(o[keyCol])] || null; });
 }
 
+// Delete every row where keyCol === keyVal. Returns the number of rows deleted.
+function deleteWhere(name, keyCol, keyVal) {
+  var sh = sheet_(name);
+  var values = sh.getDataRange().getValues();
+  var k = values[0].indexOf(keyCol);
+  var deleted = 0;
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][k]) !== String(keyVal)) continue;
+    sh.deleteRows(r + 1, 1);
+    deleted++;
+  }
+  return deleted;
+}
+
 function findOne(name, keyCol, keyVal) {
   var rows = readTable(name);
   for (var i = 0; i < rows.length; i++) if (String(rows[i][keyCol]) === String(keyVal)) return rows[i];

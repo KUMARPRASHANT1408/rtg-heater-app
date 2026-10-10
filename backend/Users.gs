@@ -40,3 +40,13 @@ function resetPassword(admin, userId) {
   audit(admin.UserID, 'resetPassword', userId);
   return { tempPassword: temp };
 }
+
+// Removes a user for good. Their past requests, tickets and log entries keep their user ID and name.
+function deleteUser(admin, userId) {
+  var u = findOne('Users', 'UserID', userId);
+  if (!u) throw new Error('No such user.');
+  if (u.UserID === admin.UserID) throw new Error('You cannot delete your own account.');
+  deleteWhere('Users', 'UserID', userId);
+  audit(admin.UserID, 'deleteUser', userId, { Name: u.Name, Role: u.Role });
+  return { deleted: userId };
+}
