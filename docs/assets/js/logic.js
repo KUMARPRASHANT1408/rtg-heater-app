@@ -148,6 +148,153 @@ function heaterSearch(data, width, rating, plies) {
   };
 }
 
+// ---------- joint calculator ----------
+// Numbers below are the RTG standard Prashant supplied on 2026-10-10 (DIN 22102 / ISO practice for fabric belts,
+// DIN 22131 for steel cord). Change them here if the standard changes.
+var JOINT_STD = {
+  // Step length by the rating of ONE ply (belt rating / plies). step: [low, high] of the recommended range.
+  steps: [
+    { from: 100, to: 125, step: [200, 200], overlap: 150, label: 'EP 100 – EP 125' },
+    { from: 160, to: 200, step: [250, 250], overlap: 200, label: 'EP 160 – EP 200' },
+    { from: 250, to: 315, step: [300, 350], overlap: 250, label: 'EP 250 – EP 315' },
+    { from: 400, to: 500, step: [400, 400], overlap: 350, label: 'EP 400 – EP 500' },
+    { from: 630, to: 630, step: [450, 500], overlap: 400, label: 'EP 630' }
+  ],
+  minStep: 200, ruleOfThumb: 0.25,          // step >= 0.25 x ply rating, never under 200 mm
+  biasDeg: 16.7,                            // bias length = width x tan(angle); 16.7 deg gives 300 mm on a 1000 mm belt
+  edgeMargin: [75, 100],                    // platen overhang each side of the belt
+  endClear: [100, 150],                     // rhombic platen overhang at each end of the steps (100 used)
+  platenModule: 500,                        // rhombic platens come in 500 mm sections
+  rectEndClear: [100, 150],                 // rectangular platen overhang at each end of the full splice
+  pressure: [0.8, 1.0],                     // MPa, fabric belts (0.7 - 1.0 allowed, 0.8 recommended)
+  beamRating_t: 30,                         // each crossbeam station rated for at least 30 t
+  carcassPerPly: 1.125,                     // mm, estimate when the carcass thickness is not measured (4 plies = 4.5 mm)
+  soak: { base: 30, perMm: 3.15, fromMm: 9.5 }, // soak minutes = 30 + 3.15 x (T - 9.5 mm), rounded up
+  cureTemp: 145, startTimerAt: 142, maxTemp: 150, releaseAt: 60, bumpAt: 100,
+  seatPressure: 2.5, fullPressure: [8, 10],  // bar
+  rampUp: [35, 45],                         // minutes, ambient to 145 C
+  cooling: { water: [15, 25], air: [35, 50], natural: [60, 90] },
+  steel: [
+    { from: 500, to: 2000, steps: 1, splice: [800, 1300] },
+    { from: 2500, to: 3150, steps: 2, splice: [1500, 2100] },
+    { from: 3500, to: 4500, steps: 3, splice: [2500, 3300] },
+    { from: 5000, to: 5400, steps: 4, splice: [3600, 4200] }
+  ]
+};
+
+// "EP 800/4", "ep800/4", "NN 630 / 3", "ST1000" -> {type, rating, plies}
+function parseBelt(spec) {
+  var m = String(spec || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{1,3})?(\d+)(?:\/(\d+))?$/);
+  if (!m) return null;
+  return { type: m[1] || 'EP', rating: Number(m[2]), plies: m[3] ? Number(m[3]) : 0 };
+}
+
+function ceil10_(x) { return Math.ceil(x / 10 - 1e-9) * 10; }
+
+// Step length for one ply rating. Inside a band with a range (EP 250 - 315 -> 300 - 350 mm) the value is
+// interpolated and rounded up to 10 mm; between two bands the next higher band is used.
+function stepFor(plyRating) {
+  var t = JOINT_STD.steps, notes = [], band = null, step;
+  for (var i = 0; i < t.length; i++) {
+    if (plyRating <= t[i].to) { band = t[i]; break; }
+  }
+  if (!band) {
+    // Never shorter than the strongest band in the table.
+    step = Math.max(JOINT_STD.minStep, ceil10_(JOINT_STD.ruleOfThumb * plyRating), t[t.length - 1].step[1]);
+    notes.push('Ply rating ' + plyRating + ' N/mm is above the standard table (EP 630), so the longer of the EP 630 step and the rule of thumb (0.25 x ply rating) is used. Check the belt maker\'s datasheet.');
+    return { step: step, range: [step, step], overlap: null, band: 'Rule of thumb', notes: notes };
+  }
+  if (plyRating < band.from) notes.push(plyRating < t[0].from ? 'Ply rating ' + plyRating + ' N/mm is below the table; the lowest band is used.' : 'Ply rating ' + plyRating + ' N/mm falls between two bands of the table; the next higher band (' + band.label + ') is used.');
+  var lo = band.step[0], hi = band.step[1];
+  if (lo === hi) step = lo;
+  else if (band.from === band.to || plyRating >= band.to) step = hi;
+  else if (plyRating <= band.from) step = lo;
+  else step = ceil10_(lo + (hi - lo) * (plyRating - band.from) / (band.to - band.from));
+  step = Math.max(step, JOINT_STD.minStep, ceil10_(JOINT_STD.ruleOfThumb * plyRating));
+  return { step: step, range: [lo, hi], overlap: band.overlap, band: band.label, notes: notes };
+}
+
+function round_(x, d) { var f = Math.pow(10, d || 0); return Math.round(x * f) / f; }
+
+// in: {belt: 'EP 800/4' (or type/rating/plies), width, top, bottom, carcass?, bias?, bevel?, cooling?}
+function jointCalc(inp) {
+  var b = parseBelt(inp.belt) || {};
+  var type = String(inp.type || b.type || 'EP').toUpperCase(), rating = num_(inp.rating) || b.rating, plies = num_(inp.plies) || b.plies;
+  var B = num_(inp.width);
+  if (!rating) throw new Error('Enter the belt rating, for example EP 800/4 or ST1000.');
+  if (!B) throw new Error('Enter the belt width in mm.');
+  if (type === 'ST') {
+    var band = JOINT_STD.steel.filter(function (s) { return rating >= s.from && rating <= s.to; })[0];
+    return { kind: 'steel', type: type, rating: rating, width: B, band: band || null,
+             notes: [band ? 'The exact splice length for steel cord belts comes from the cord diameter, cord pitch and the belt maker\'s pull-out test data. The range shown is from the standard.'
+                          : 'ST' + rating + ' is not covered by the standard table (ST 500-2000, 2500-3150, 3500-4500, 5000-5400). Use the belt maker\'s splice data.'] };
+  }
+  if (!plies) throw new Error('Enter the number of plies, for example EP 800/4.');
+  var notes = [];
+  var plyRating = round_(rating / plies, 1);
+  var st = stepFor(plyRating);
+  notes = notes.concat(st.notes);
+  var steps = plies - 1;
+  if (steps < 1) notes.push('A single-ply belt has no steps; this standard is for multi-ply belts.');
+  var bevel = num_(inp.bevel), alpha = inp.bias === undefined || inp.bias === '' ? JOINT_STD.biasDeg : num_(inp.bias);
+  var Lv = steps * st.step;
+  var lb = Math.round(B * Math.tan(alpha * Math.PI / 180));
+  var Ltot = Lv + 2 * bevel + lb;
+
+  var W = [B + 2 * JOINT_STD.edgeMargin[0], B + 2 * JOINT_STD.edgeMargin[1]];
+  var rhMin = Lv + 2 * JOINT_STD.endClear[0];
+  var rh = { required: rhMin, length: Math.ceil(rhMin / JOINT_STD.platenModule) * JOINT_STD.platenModule, range: [rhMin, Lv + 2 * JOINT_STD.endClear[1]] };
+  rh.sections = rh.length / JOINT_STD.platenModule;
+  var re = { length: Ltot + 2 * JOINT_STD.rectEndClear[0], range: [Ltot + 2 * JOINT_STD.rectEndClear[0], Ltot + 2 * JOINT_STD.rectEndClear[1]] };
+  function force(Lp) {
+    var A = (Lp / 1000) * (W[0] / 1000);
+    var kN = JOINT_STD.pressure.map(function (P) { return Math.round(P * A * 1000); });
+    var t = kN.map(function (k) { return Math.round(k / 9.80665); });
+    return { area: round_(A, 3), kN: kN, t: t, beams: Math.ceil(kN[1] / 9.80665 / JOINT_STD.beamRating_t) };
+  }
+  rh.force = force(rh.length); re.force = force(re.length);
+
+  var measured = num_(inp.carcass) > 0;
+  var carcass = measured ? num_(inp.carcass) : round_(plies * JOINT_STD.carcassPerPly, 2);
+  var top = num_(inp.top), bottom = num_(inp.bottom), T = round_(carcass + top + bottom, 2), cure = null;
+  if (!top && !bottom) notes.push('Enter the top and bottom cover thickness to get the cure time.');
+  else {
+    var S = JOINT_STD.soak, soakMin = Math.max(1, Math.ceil(S.base + S.perMm * (T - S.fromMm) - 1e-9));
+    var cool = JOINT_STD.cooling[inp.cooling] || JOINT_STD.cooling.water;
+    cure = { thickness: T, carcass: carcass, carcassEstimated: !measured, top: top, bottom: bottom, soakUsed: soakMin,
+             rampUp: JOINT_STD.rampUp, cooling: inp.cooling && JOINT_STD.cooling[inp.cooling] ? inp.cooling : 'water', cool: cool,
+             total: [JOINT_STD.rampUp[0] + soakMin + cool[0], JOINT_STD.rampUp[1] + soakMin + cool[1]] };
+  }
+  return {
+    kind: 'fabric', type: type, rating: rating, plies: plies, width: B, plyRating: plyRating,
+    step: st, steps: steps, bevel: bevel, bias: alpha, overlapLength: Lv, biasLength: lb, totalLength: Ltot,
+    platen: { width: W, rhombic: rh, rectangular: re }, pressure: JOINT_STD.pressure, cure: cure, notes: notes
+  };
+}
+
+// Minute-by-minute press cycle for the simulation chart: heat-up, soak, cool-down under pressure.
+// o: {ambient (C), rate (C per min), pressure (bar), coolMin}. Returns {points: [{t, temp, bar, phase}], marks}.
+function cureProfile(cure, o) {
+  var S = JOINT_STD, amb = num_(o.ambient) || 30, rate = num_(o.rate) || 3, full = num_(o.pressure) || S.fullPressure[0];
+  var cool = num_(o.coolMin) || (cure.cool[0] + cure.cool[1]) / 2;
+  var ramp = Math.max(1, Math.ceil((S.cureTemp - amb) / rate)), soak = cure.soakUsed, pts = [], t;
+  var bumpT = Math.max(0, (S.bumpAt - amb) / rate);
+  for (t = 0; t <= ramp; t++) {
+    var temp = Math.min(S.cureTemp, amb + rate * t);
+    // Seat at low pressure; raise to full pressure over the 100 - 110 C band.
+    var bar = temp < S.bumpAt ? S.seatPressure : Math.min(full, S.seatPressure + (full - S.seatPressure) * (temp - S.bumpAt) / 10);
+    pts.push({ t: t, temp: Math.round(temp), bar: round_(bar, 1), phase: 'Heat-up' });
+  }
+  for (t = ramp + 1; t <= ramp + soak; t++) pts.push({ t: t, temp: S.cureTemp, bar: full, phase: 'Soak' });
+  var c0 = ramp + soak;
+  for (t = c0 + 1; t <= c0 + cool; t++) {
+    pts.push({ t: t, temp: Math.round(S.cureTemp - (S.cureTemp - S.releaseAt) * (t - c0) / cool), bar: full, phase: 'Cool-down' });
+  }
+  var end = c0 + Math.ceil(cool);
+  pts.push({ t: end + 1, temp: S.releaseAt, bar: 0, phase: 'Released' });
+  return { points: pts, marks: { bump: Math.round(bumpT), soakStart: ramp, coolStart: c0, release: end }, ramp: ramp, soak: soak, cool: Math.ceil(cool), total: end };
+}
+
 // Sequential, zero-padded numbers like RTGH0001 or HEATER_0001.
 function formatNumber(prefix, n, width) {
   var s = String(n);
@@ -195,5 +342,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }
