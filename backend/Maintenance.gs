@@ -33,13 +33,13 @@ function pendingLogIds_(logs) {
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
   if (!canLogMaintenance_(user)) throw new Error('You do not have permission for this.');
-  var models = {};
-  readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; });
+  var models = {}, pairs = {};
+  readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
   return readTable('Components').filter(function (c) { return c.Status === STATUS.IN_STORE && c.Condition !== CONDITION.SCRAPPED; })
     .map(function (c) {
       return { ComponentID: c.ComponentID, ModelID: c.ModelID, ModelName: models[c.ModelID] || c.ModelID, SetNo: c.SetNo, ComponentName: c.ComponentName,
-               Condition: c.Condition, due: c.MaintenanceStatus === MAINT.DUE, LastInspected: c.LastInspected, JointsSinceMaintenance: c.JointsSinceMaintenance, Remarks: c.Remarks, pendingLog: pending[c.ComponentID] || '' };
+               PairOf: pairs[c.ModelID] || '', Condition: c.Condition, due: c.MaintenanceStatus === MAINT.DUE, LastInspected: c.LastInspected, JointsSinceMaintenance: c.JointsSinceMaintenance, Remarks: c.Remarks, pendingLog: pending[c.ComponentID] || '' };
     });
 }
 

@@ -112,3 +112,10 @@ test('issue refuses a part from a heater the ticket is not built from', () => {
   const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
   assert.match(call('issueTicket', { TicketNo, items: [{ ComponentID: '8-A-HP1', Qty: 1 }] }, admin).error, /different heater/);
 });
+
+test('maintenance list marks the parts only a pair has', () => {
+  const { ok, admin } = app();
+  const rows = ok('maintenanceDue', {}, admin);
+  assert.deepStrictEqual([...new Set(rows.filter((r) => r.PairOf).map((r) => r.ModelID + '=' + r.PairOf))], ['14-CD=14-C + 14-D']);
+  assert.ok(rows.filter((r) => r.ModelID === '14-C').every((r) => r.PairOf === ''));
+});
