@@ -61,8 +61,11 @@
     return { base: parts.slice(0, 2).join('/'), arg: parts.slice(2).join('/') ? decodeURIComponent(parts.slice(2).join('/')) : '', params: params };
   }
 
+  var renderedAt = 0, touchedAt = 0;
   function route() {
     clearCharts(); stopSim();
+    view.removeEventListener('click', onUserClick);
+    renderedAt = Date.now();
     if (!state.user) return renderLogin();
     var h = parseHash();
     if (ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) h = { base: '#/home', arg: '', params: {} };
@@ -1694,6 +1697,7 @@
     if (f.newPassword !== f.repeat) return showError($('#pw-error'), new Error('The new passwords do not match.'));
     API.call('changePassword', { oldPassword: f.oldPassword, newPassword: f.newPassword }).then(function () {
       state.user.MustChangePassword = false;
+      API.saveUser(state.user);
       $('#dlg-password').close();
       toast('Password changed');
     }).catch(function (err) { showError($('#pw-error'), err); });
@@ -1771,8 +1775,28 @@
     view.removeEventListener('click', onUserClick);
     route();
   });
-  if (API.token) {
-    API.call('me').then(function (d) { state.user = d.user; afterLogin(); }).catch(function () { API.logout(); renderLogin(); });
+  // Fresh data arrived for a page already shown from the saved copy: redraw it,
+  // unless the person is in the middle of something on it.
+  ['input', 'change', 'click'].forEach(function (t) { view.addEventListener(t, function () { touchedAt = Date.now(); }, true); });
+  API.onFresh = function (action, data) {
+    if (action === 'auth') { API.logout(); state.user = null; location.hash = '#/login'; renderLogin(); return; }
+    if (action === 'lookups') { state.lookups = data; $('#dept-list').innerHTML = data.departments.map(function (d) { return '<option value="' + esc(d) + '">'; }).join(''); }
+    if (!state.user || $('dialog[open]') || touchedAt > renderedAt) return;
+    var a = document.activeElement;
+    if (a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return;
+    var y = window.scrollY;
+    route();
+    window.scrollTo(0, y);
+  };
+  var savedUser = API.savedUser();
+  if (API.token && savedUser) {
+    // Open straight away with the last signed-in user; check the login in the background.
+    state.user = savedUser;
+    afterLogin();
+    API.call('me').then(function (d) { state.user = d.user; API.saveUser(d.user); renderChrome(parseHash().base); })
+      .catch(function (err) { if (err.auth) { API.logout(); state.user = null; location.hash = '#/login'; renderLogin(); } });
+  } else if (API.token) {
+    API.call('me').then(function (d) { state.user = d.user; API.saveUser(d.user); afterLogin(); }).catch(function () { API.logout(); renderLogin(); });
   } else {
     renderLogin();
   }

@@ -6,29 +6,90 @@
     try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; }
   }
 
+  // Read-only actions are kept on this device so a page shows at once: the saved copy is shown first,
+  // then fetched fresh in the background, and api.onFresh(action, data) is told when it changed.
+  // Any change (approve, issue, save...) wipes the saved copies so nobody acts on old data.
+  var READS = { dashboard: 1, lookups: 1, heaterSearch: 1, components: 1, listUsers: 1, listRequests: 1, getRequest: 1,
+                listTransfers: 1, listConsumables: 1, consumableDetail: 1, listConsumableRequests: 1, maintenanceDue: 1,
+                listMaintenanceLogs: 1 };
+  var CACHE_KEY = 'rtg.cache', USER_KEY = 'rtg.user', FRESH_MS = 15000, MAX_ENTRIES = 40;
+  var cache = loadCache(), inflight = {};
+
+  function loadCache() {
+    try { var c = JSON.parse(store(CACHE_KEY) || 'null'); if (c && c.token === store(TOKEN_KEY)) return c; } catch (e) { /* ignore */ }
+    return { token: store(TOKEN_KEY), entries: {} };
+  }
+  function saveCache() {
+    var keys = Object.keys(cache.entries);
+    if (keys.length > MAX_ENTRIES) {
+      keys.sort(function (a, b) { return cache.entries[a].t - cache.entries[b].t; });
+      keys.slice(0, keys.length - MAX_ENTRIES).forEach(function (k) { delete cache.entries[k]; });
+    }
+    store(CACHE_KEY, JSON.stringify(cache));
+  }
+  function clearCache() { cache = { token: api.token, entries: {} }; store(CACHE_KEY, null); }
+
+  function send(req) {
+    return api.demo ? demoHandle(req) : fetch(window.RTG_CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(req)
+    }).then(function (r) { return r.json(); });
+  }
+  function unwrap(res) {
+    if (!res.ok) {
+      var err = new Error(res.error || 'Something went wrong.');
+      err.auth = res.auth;
+      throw err;
+    }
+    return res.data;
+  }
+  function fetchRead(k, req) {
+    if (inflight[k]) return inflight[k];
+    var p = send(req).then(unwrap).then(function (data) {
+      cache.entries[k] = { t: Date.now(), data: data };
+      saveCache();
+      return data;
+    });
+    inflight[k] = p;
+    p.then(done, done);
+    function done() { delete inflight[k]; }
+    return p;
+  }
+
   var api = {
     demo: !window.RTG_CONFIG.API_URL,
     token: store(TOKEN_KEY),
+    onFresh: null,
     call: function (action, data) {
       var req = { action: action, token: api.token, data: data || {} };
-      var p = api.demo ? demoHandle(req) : fetch(window.RTG_CONFIG.API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(req)
-      }).then(function (r) { return r.json(); });
-      return p.then(function (res) {
-        if (!res.ok) {
-          var err = new Error(res.error || 'Something went wrong.');
-          err.auth = res.auth;
-          throw err;
-        }
-        return res.data;
-      });
+      if (!READS[action]) {
+        return send(req).then(unwrap).then(function (d) {
+          if (action !== 'me') clearCache();
+          return d;
+        });
+      }
+      var k = action + '|' + JSON.stringify(req.data), hit = cache.entries[k];
+      if (!hit) return fetchRead(k, req).then(copy);
+      if (Date.now() - hit.t > FRESH_MS) {
+        var before = JSON.stringify(hit.data);
+        fetchRead(k, req).then(function (fresh) {
+          if (JSON.stringify(fresh) !== before && api.onFresh) api.onFresh(action, copy(fresh));
+        }).catch(function (err) { if (err.auth && api.onFresh) api.onFresh('auth', null); });
+      }
+      return Promise.resolve(copy(hit.data));
     },
+    // The last signed-in user, so the app can open without waiting for the server.
+    savedUser: function () {
+      try { return api.token ? JSON.parse(store(USER_KEY) || 'null') : null; } catch (e) { return null; }
+    },
+    saveUser: function (u) { store(USER_KEY, JSON.stringify(u)); },
     login: function (userId, password) {
       return api.call('login', { userId: userId, password: password }).then(function (d) {
         api.token = d.token;
         store(TOKEN_KEY, d.token);
+        clearCache();
+        api.saveUser(d.user);
         return d.user;
       });
     },
@@ -36,9 +97,12 @@
       var p = api.call('logout').catch(function () {});
       api.token = null;
       store(TOKEN_KEY, null);
+      store(USER_KEY, null);
+      clearCache();
       return p;
     }
   };
+  function copy(d) { return d === undefined ? d : JSON.parse(JSON.stringify(d)); }
 
   // ---------- Demo backend ----------
   // Runs the real Apps Script backend code in this browser against fake Sheet services,
