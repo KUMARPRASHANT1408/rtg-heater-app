@@ -24,6 +24,12 @@ Heater (component by component) and consumables issue, return and tracking for t
   Admins update stock by hand (receipt, issue, correction) or upload a CSV file (every row is checked first; nothing is saved
   unless all rows are right). Requests: RTGC0001 → admin approve/reject with mail → ticket CONS_0001 → issue deducts stock.
 
+- Stage 5: heater maintenance. The vendor team (users with Team = Vendor) logs each day which parts they maintained, with the
+  filled checklist as a photo or PDF (saved in a Google Drive folder). RTG checks the log and the checklist; on "Verified" the parts
+  become ready to issue again, on "Not OK" the vendor gets a mail and logs it again.
+
+See `SHEET_GUIDE.md` for what every tab and column means. Run `clearTestData` once before going live.
+
 **Next:** joint calculator.
 
 ## Try it without any setup (demo mode)

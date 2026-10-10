@@ -210,3 +210,17 @@ textarea { resize: vertical; }
 .pill.none { background: var(--border); color: var(--text-2); }
 dialog .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 dialog h2 { margin: 0; }
+.mset { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.mset > summary { cursor: pointer; list-style: none; }
+.mset > summary::-webkit-details-marker { display: none; }
+.mset-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.mset[open] > summary { margin-bottom: 8px; }
+/* Admins have nine menu items; make room on laptop screens. */
+@media (max-width: 1100px) {
+  .topbar { flex-wrap: wrap; }
+  .nav { order: 3; width: 100%; flex: none; }
+}
+@media (max-width: 1400px) and (min-width: 1101px) {
+  .who .name { display: none; }
+  .nav a { padding: 7px 9px; font-size: .9rem; }
+}

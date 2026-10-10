@@ -43,7 +43,7 @@
   // ---------- Demo backend ----------
   // Runs the real Apps Script backend code in this browser against fake Sheet services,
   // with the data kept in localStorage. Nothing leaves the browser.
-  var DEMO_KEY = 'rtg.demo.v4';
+  var DEMO_KEY = 'rtg.demo.v5';
   var backend = null;
 
   function demoBackend() {
@@ -58,6 +58,11 @@
       addDemoUser('hod', 'hod12345', { Name: 'Demo RTG HOD', EmployeeID: '100002', Role: 'HOD', Team: 'RTG', Email: 'hod@example.com' });
       addDemoUser('rchief', 'chief123', { Name: 'Demo RTG Chief', EmployeeID: '100003', Role: 'RTG Chief', Team: 'RTG', Email: 'rchief@example.com' });
       addDemoUser('fchief', 'chief123', { Name: 'Demo FM Chief', EmployeeID: '200002', Role: 'FM Chief', Team: 'FM', Email: 'fchief@example.com' });
+      addDemoUser('vendor', 'vendor123', { Name: 'Demo Maintenance Vendor', EmployeeID: 'V9001', Role: 'Local', Team: 'Vendor', Department: 'ABC Heater Services', Email: 'vendor@example.com' });
+      // One set back from a joint, so the maintenance page has work to show.
+      ['TP', 'BP', 'CP', 'PB', 'PC1', 'PC2', 'T1', 'T2', 'SB1', 'SB2', 'CBS'].forEach(function (c) {
+        backend.updateWhere('Components', 'ComponentID', 'HM-03-S2-' + c, { MaintenanceStatus: 'Due', JointsSinceMaintenance: 1 });
+      });
       services.__save();
     }
     return backend;

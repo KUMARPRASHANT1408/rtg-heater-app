@@ -151,6 +151,23 @@ var SCHEMA = {
     "Comment",
     "DecidedOn"
   ],
+  "MaintenanceLogs": [
+    "LogNo",
+    "LogDate",
+    "LoggedBy",
+    "LoggedOn",
+    "VendorTeam",
+    "ComponentIDs",
+    "RepairedIDs",
+    "WorkDone",
+    "ChecklistFileId",
+    "ChecklistName",
+    "ChecklistType",
+    "Status",
+    "VerifiedBy",
+    "VerifiedOn",
+    "RTGRemark"
+  ],
   "Consumables": [
     "ItemID",
     "ItemName",

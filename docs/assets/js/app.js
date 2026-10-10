@@ -42,12 +42,13 @@
     { hash: '#/requests', label: 'Requests' },
     { hash: '#/transfers', label: 'Transfers' },
     { hash: '#/consumables', label: 'Consumables' },
+    { hash: '#/maintenance', label: 'Maintenance', maint: true },
     { hash: '#/inventory', label: 'Inventory', admin: true },
     { hash: '#/users', label: 'Users', admin: true }
   ];
   var ROUTES = { '#/home': renderHome, '#/heaters': renderHeaters, '#/inventory': renderInventory, '#/users': renderUsers,
                  '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers,
-                 '#/consumables': renderConsumables, '#/consumable': renderConsumable };
+                 '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance };
   var ADMIN_ROUTES = ['#/inventory', '#/users'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
@@ -73,7 +74,7 @@
     $('#topbar').classList.remove('hidden');
     $('#who-name').textContent = state.user.Name;
     $('#who-role').textContent = state.user.Role;
-    $('#nav').innerHTML = NAV.filter(function (n) { return !n.admin || isAdmin(); }).map(function (n) {
+    $('#nav').innerHTML = NAV.filter(function (n) { return (!n.admin || isAdmin()) && (!n.maint || canMaintain()); }).map(function (n) {
       return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.label) + '</a>';
     }).join('');
   }
@@ -124,6 +125,7 @@
       { href: '#/transfers', ico: '🔁', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
       { href: '#/consumables', ico: '🧪', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
     ];
+    if (canMaintain()) tiles.splice(isAdmin() ? 3 : 0, 0, { href: '#/maintenance', ico: '🛠️', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
     if (isAdmin()) {
       tiles.splice(1, 0, { href: '#/inventory', ico: '🧰', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
       tiles.push({ href: '#/calculator', ico: '📐', title: 'Joint calculator', text: 'Minimum joint length and step length from belt width, rating and plies.', soon: true });
@@ -148,6 +150,7 @@
       var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
       box.innerHTML = mine + t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
         t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad') +
+        (d.maintenanceToVerify && isAdmin() ? '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Maintenance logs to check</div><div class="value" style="color:var(--warn)">' + d.maintenanceToVerify + '</div></a>' : '') +
         (d.consumablePending ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">Consumable requests</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
         (d.consumableAlerts ? '<a class="card stat tile" href="#/consumables"><div class="label">Consumables low or expiring</div><div class="value" style="color:var(--bad)">' + d.consumableAlerts + '</div></a>' : '');
     }).catch(function () { box.remove(); });
@@ -1107,6 +1110,160 @@
         scales: { x: { grid: { display: false }, ticks: { color: text2 } }, y: { beginAtZero: true, ticks: { precision: 0, color: text2 }, grid: { color: grid } } }
       }
     }));
+  }
+
+  // ---------- heater maintenance (vendor logs, RTG verifies) ----------
+  function canMaintain() { return isAdmin() || (state.user && state.user.Team === 'Vendor'); }
+  var MLOG_PILL = { Submitted: 'warn', Verified: 'good', Rejected: 'bad' };
+
+  // Photos are shrunk before upload so they go up quickly over mobile data. PDFs go as they are.
+  function readChecklist(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) return reject(new Error('Attach the filled checklist (photo or PDF).'));
+      var isPdf = file.type === 'application/pdf';
+      if (!isPdf && !/^image\//.test(file.type)) return reject(new Error('The checklist must be a photo or a PDF.'));
+      if (isPdf && file.size > 6 * 1024 * 1024) return reject(new Error('The PDF is too big. Please keep it under 6 MB.'));
+      var rd = new FileReader();
+      rd.onerror = function () { reject(new Error('Could not read the file.')); };
+      rd.onload = function () {
+        if (isPdf) return resolve({ name: file.name, type: file.type, data: String(rd.result).split(',')[1] });
+        var img = new Image();
+        img.onerror = function () { reject(new Error('Could not open the photo. Try a JPG or PNG.')); };
+        img.onload = function () {
+          var scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+          var c = document.createElement('canvas');
+          c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          resolve({ name: file.name.replace(/\.\w+$/, '') + '.jpg', type: 'image/jpeg', data: c.toDataURL('image/jpeg', 0.75).split(',')[1] });
+        };
+        img.src = rd.result;
+      };
+      rd.readAsDataURL(file);
+    });
+  }
+
+  function openChecklist(logNo, btn) {
+    busy(btn, true);
+    // Open the tab now (browsers block pop-ups opened after a wait), then fill it.
+    var win = window.open('', '_blank');
+    API.call('getChecklist', { LogNo: logNo }).then(function (f) {
+      var bytes = atob(f.data), arr = new Uint8Array(bytes.length);
+      for (var i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      var url = URL.createObjectURL(new Blob([arr], { type: f.type }));
+      if (win) win.location = url; else location.href = url;
+    }).catch(function (err) { if (win) win.close(); toast(err.message); }).then(function () { busy(btn, false); });
+  }
+
+  function renderMaintenance(arg, params) {
+    if (!canMaintain()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and the maintenance vendor.</p></div>'; return; }
+    var show = params.f || (isAdmin() ? 'verify' : 'log');
+    view.innerHTML = '<div class="page-head"><div><h1>Heater maintenance</h1></div></div><p class="muted">Loading…</p>';
+    Promise.all([API.call('maintenanceDue'), API.call('listMaintenanceLogs')]).then(function (res) {
+      var due = res[0], logs = res[1];
+      var reload = function (msg) { if (msg) toast(msg); renderMaintenance(arg, params); };
+      var waiting = logs.filter(function (l) { return l.Status === 'Submitted'; });
+      var month = todayStr().slice(0, 7);
+      var free = due.filter(function (c) { return !c.pendingLog; });
+      function stat(label, v, tone, f) {
+        return '<a class="card stat tile' + (show === f ? ' accent' : '') + '" href="#/maintenance?f=' + f + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
+      }
+      var html = '<div class="page-head"><div><h1>Heater maintenance</h1><p class="muted">After every joint, parts come back "maintenance due". The vendor logs the maintenance with the checklist, RTG verifies, and the parts are ready to issue again.</p></div></div>' +
+        '<div class="grid grid-5" style="margin-bottom:16px">' +
+        stat('Parts waiting for maintenance', free.length, 'warn', 'log') +
+        stat('Logs waiting for RTG check', waiting.length, 'warn', 'verify') +
+        stat('Verified this month', logs.filter(function (l) { return l.Status === 'Verified' && String(l.VerifiedOn).slice(0, 7) === month; }).length, '', 'all') + '</div>' +
+        '<div class="chips">' + [['log', 'Log maintenance'], ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].map(function (c) {
+          return '<a class="chip' + (show === c[0] ? ' active' : '') + '" href="#/maintenance?f=' + c[0] + '">' + esc(c[1]) + '</a>';
+        }).join('') + '</div>';
+
+      if (show === 'log') {
+        // Group the parts by heater set so a whole set can be ticked at once.
+        var groups = {}, order = [];
+        free.forEach(function (c) {
+          var k = c.ModelName + (c.SetNo ? ' · set ' + c.SetNo : '');
+          if (!groups[k]) { groups[k] = []; order.push(k); }
+          groups[k].push(c);
+        });
+        html += free.length ? '<form id="form-mlog" class="stack">' +
+          '<div class="card stack"><h2>1. Which parts did you maintain?</h2><p class="muted small">Tick a whole set, or open it to tick single parts.</p>' +
+          order.map(function (k, gi) {
+            return '<details class="mset"><summary><span class="mset-head"><input type="checkbox" data-group="' + gi + '" style="min-height:auto"> <b>' + esc(k) + '</b> <span class="muted small">' + groups[k].length + ' part(s)</span></span></summary>' +
+              '<div class="table-wrap"><table><tbody>' + groups[k].map(function (c) {
+                var damaged = c.Condition !== 'OK';
+                return '<tr><td style="width:36px"><input type="checkbox" data-part="' + esc(c.ComponentID) + '" data-g="' + gi + '" style="min-height:auto"></td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(c.ComponentName) +
+                  (c.Remarks ? '<div class="small muted">' + esc(c.Remarks) + '</div>' : '') + '</td><td>' +
+                  (damaged ? '<span class="pill bad">' + esc(c.Condition) + '</span> <label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-repaired="' + esc(c.ComponentID) + '" style="min-height:auto"> Repaired</label>' : '<span class="pill good">OK</span>') +
+                  '</td><td class="num small muted">' + esc(c.JointsSinceMaintenance) + ' joint(s)</td></tr>';
+              }).join('') + '</tbody></table></div></details>';
+          }).join('') + '</div>' +
+          '<div class="card stack"><h2>2. What did you do?</h2><div class="row"><label>Date<input type="date" name="LogDate" required value="' + todayStr() + '" max="' + todayStr() + '"></label>' +
+          '<label>Vendor team<input name="VendorTeam" value="' + esc(state.user.Department || '') + '"></label></div>' +
+          '<label>Work done<textarea name="WorkDone" rows="3" required placeholder="e.g. Cleaned platens, checked thermocouples and cables, replaced 2 bolts"></textarea></label></div>' +
+          '<div class="card stack"><h2>3. Attach the filled checklist</h2><p class="muted small">Take a clear photo of the signed checklist, or attach a PDF.</p>' +
+          '<label>Checklist<input type="file" name="file" accept="image/*,application/pdf" required></label></div>' +
+          '<div class="alert error hidden" id="mlog-error"></div><div class="actions"><span class="muted small" id="mlog-count">0 parts selected</span><button class="btn" type="submit">Send to RTG for checking</button></div></form>'
+          : '<div class="card"><p class="muted">No parts are waiting for maintenance right now. 👍</p></div>';
+      } else {
+        var list = show === 'verify' ? waiting : logs;
+        html += '<div class="stack">' + (list.map(function (l) {
+          return '<div class="card stack"><div class="model-head"><div><h2>' + esc(l.LogNo) + ' · ' + esc(l.LogDate) + '</h2><div class="small muted">Logged by ' + esc(l.LoggedByName) + (l.VendorTeam ? ' (' + esc(l.VendorTeam) + ')' : '') + ' on ' + esc(l.LoggedOn) + '</div></div>' +
+            '<span class="pill ' + (MLOG_PILL[l.Status] || 'info') + '">' + esc(l.Status === 'Submitted' ? 'Waiting for RTG check' : l.Status) + '</span></div>' +
+            '<p>' + esc(l.WorkDone) + '</p>' +
+            '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + '</span>'; }).join('') + '</div>' +
+            (l.RTGRemark ? '<p class="small"><b>RTG:</b> ' + esc(l.RTGRemark) + (l.VerifiedBy ? ' <span class="muted">(' + esc(l.VerifiedBy) + ', ' + esc(l.VerifiedOn) + ')</span>' : '') + '</p>' : '') +
+            '<div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" data-checklist="' + esc(l.LogNo) + '">View checklist</button>' +
+            (isAdmin() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
+            '</div></div>';
+        }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
+      }
+      view.innerHTML = html;
+
+      view.querySelectorAll('[data-checklist]').forEach(function (b) { b.addEventListener('click', function () { openChecklist(b.dataset.checklist, b); }); });
+      view.querySelectorAll('[data-mapprove]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          busy(b, true);
+          API.call('verifyMaintenance', { LogNo: b.dataset.mapprove, decision: 'approve' }).then(function (r) { reload(r.parts + ' part(s) are ready to issue again'); })
+            .catch(function (err) { toast(err.message); busy(b, false); });
+        });
+      });
+      view.querySelectorAll('[data-mreject]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          formDialog('Not OK: ' + b.dataset.mreject, '<label>What is wrong (mailed to the vendor)<textarea name="remark" rows="3" required></textarea></label>', 'Send back to vendor', function (data, dlg) {
+            return API.call('verifyMaintenance', { LogNo: b.dataset.mreject, decision: 'reject', remark: data.remark }).then(function () { dlg.close(); reload('Sent back to the vendor'); });
+          });
+        });
+      });
+      var form = $('#form-mlog');
+      if (form) {
+        var count = function () {
+          var n = form.querySelectorAll('[data-part]:checked').length;
+          $('#mlog-count').textContent = n + ' part' + (n === 1 ? '' : 's') + ' selected';
+          form.querySelectorAll('[data-group]').forEach(function (g) {
+            var parts = form.querySelectorAll('[data-g="' + g.dataset.group + '"]'), on = form.querySelectorAll('[data-g="' + g.dataset.group + '"]:checked').length;
+            g.checked = on === parts.length; g.indeterminate = on > 0 && on < parts.length;
+          });
+        };
+        form.addEventListener('change', function (e) {
+          if (e.target.dataset.group !== undefined) form.querySelectorAll('[data-g="' + e.target.dataset.group + '"]').forEach(function (x) { x.checked = e.target.checked; });
+          if (e.target.dataset.repaired && e.target.checked) { var p = form.querySelector('[data-part="' + e.target.dataset.repaired + '"]'); if (p) p.checked = true; }
+          count();
+        });
+        // Ticking the set box shouldn't also open/close it.
+        form.querySelectorAll('.mset-head input').forEach(function (x) { x.addEventListener('click', function (e) { e.stopPropagation(); }); });
+        form.addEventListener('submit', function (e) {
+          e.preventDefault();
+          var btn = $('button[type=submit]', form), fd = formData(form);
+          var ids = Array.prototype.map.call(form.querySelectorAll('[data-part]:checked'), function (x) { return x.dataset.part; });
+          var repaired = Array.prototype.map.call(form.querySelectorAll('[data-repaired]:checked'), function (x) { return x.dataset.repaired; });
+          if (!ids.length) return showError($('#mlog-error'), new Error('Tick the parts you maintained.'));
+          busy(btn, true);
+          readChecklist(form.file.files[0]).then(function (file) {
+            return API.call('logMaintenance', { ComponentIDs: ids, RepairedIDs: repaired, LogDate: fd.LogDate, VendorTeam: fd.VendorTeam, WorkDone: fd.WorkDone, file: file });
+          }).then(function (r) { location.hash = '#/maintenance?f=all'; toast('Log ' + r.LogNo + ' sent to RTG for checking'); })
+            .catch(function (err) { showError($('#mlog-error'), err); busy(btn, false); });
+        });
+      }
+    }).catch(handleError);
   }
 
   // ---------- users (admin) ----------
