@@ -21,6 +21,12 @@ The Google Sheet is the app's database. Each tab is one table, and **row 1 holds
 | RatingMax_Nmm | The highest belt rating it can do | `1600` |
 | PliesMax | The most plies it can do (leave empty if it doesn't matter) | `5` |
 | Power_kW, Voltage_V, Notes | Optional | |
+| MadeFrom | **Only for a pair heater.** The two single heaters it is built from, with a comma. Leave empty for a single heater. | `14-C, 14-D` |
+
+**Pair heaters.** A pair like `14-CD` is the two singles `14-C` and `14-D` joined together for a high-rating belt. Its row in ComponentTypes lists everything the pair needs (for example 4 heating platens). In Components, the pair only gets the parts the singles do not have (for example pressure plates); the platens, beams and cables are the singles' own rows. So:
+- when a single is out, the pair shows *not ready* and says which single is out;
+- when the pair is out, both singles show as *out as part of the pair*;
+- the other single can still be issued on its own for a low-rating belt.
 
 The width and rating columns decide which heaters **Find a heater** suggests.
 
@@ -48,6 +54,16 @@ The width and rating columns decide which heaters **Find a heater** suggests.
 | JointsSinceMaintenance | `0` to start | `0` |
 | CurrentTicket, CurrentConveyor, LastInspected | **Leave empty.** The app fills these. | |
 | Remarks | Optional note | |
+
+### HeaterSelection: your heater selection guide
+One row per belt width and rating, saying which heaters may be used. **When this tab has rows, it alone decides which heaters "Find a heater" suggests** (the width/rating columns in HeaterModels are then only for information).
+| Column | What to put | Example |
+|---|---|---|
+| BeltWidth_mm | Belt width | `1200` |
+| BeltRating | Rating in N/mm, or `ST1000` style for steel cord | `1000` |
+| Plies | Number of plies (empty for steel cord) | `4` |
+| HeaterIDs | The heater numbers allowed, separated by commas, written exactly as the ModelID | `12-EF, 12-GH, 12-IJ` |
+| Notes | Optional | |
 
 ### Conveyors: your conveyor list
 ConveyorName, Area, BeltWidth_mm, BeltRating_Nmm, Plies, Notes. The belt details let the app auto-fill the heater search.

@@ -108,9 +108,9 @@ function getRequest(user, d) {
   var out = { request: r, ticket: tk, items: items, issues: issues, transfers: transfers, model: model, raisedByName: raiser ? raiser.Name : r.RaisedBy,
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
   if (user.Role === 'Admin' && tk && tk.Status === TKT.AWAITING) {
-    var comps = readTable('Components');
-    out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents);
-    out.usable = comps.filter(function (c) { return c.ModelID === r.ModelID && isUsable(c); });
+    var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
+    out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
+    out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
   }
   return out;
 }
@@ -149,7 +149,7 @@ function issueTicket(admin, d) {
   if (tk.Status !== TKT.AWAITING) throw new Error('This ticket is already ' + tk.Status.toLowerCase() + '.');
   var chosen = parseList_(d.items);
   if (!chosen.length) throw new Error('Choose the components being handed over.');
-  var comps = readTable('Components');
+  var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), tk.ModelID);
   var byId = {};
   comps.forEach(function (c) { byId[c.ComponentID] = c; });
   var seen = {};
@@ -159,7 +159,7 @@ function issueTicket(admin, d) {
     if (!c) throw new Error('Unknown component ' + ch.ComponentID + '.');
     if (seen[c.ComponentID]) throw new Error(c.ComponentID + ' is listed twice.');
     seen[c.ComponentID] = true;
-    if (c.ModelID !== tk.ModelID) throw new Error(c.ComponentID + ' belongs to a different heater model.');
+    if (from.indexOf(c.ModelID) < 0) throw new Error(c.ComponentID + ' belongs to a different heater.');
     if (!isUsable(c)) throw new Error(c.ComponentID + ' is not available (' + [c.Status, c.Condition, c.MaintenanceStatus === MAINT.DUE ? 'maintenance due' : ''].filter(String).join(', ') + ').');
     var have = Number(c.Qty) || 1, qty = Number(ch.Qty) || have;
     if (qty > have) throw new Error('Only ' + have + ' of ' + c.ComponentID + ' in store.');

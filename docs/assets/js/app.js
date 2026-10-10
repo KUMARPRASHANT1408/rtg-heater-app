@@ -157,6 +157,11 @@
   }
 
   // ---------- heater search ----------
+  function guideWidths() {
+    var g = (state.lookups && state.lookups.guide) || [], seen = {};
+    return g.map(function (x) { return Number(x.BeltWidth_mm); }).filter(function (w) { if (!w || seen[w]) return false; seen[w] = true; return true; }).sort(function (a, b) { return a - b; });
+  }
+
   function renderHeaters() {
     var conv = (state.lookups && state.lookups.conveyors) || [];
     view.innerHTML =
@@ -165,20 +170,37 @@
       '<label>Conveyor (optional)<select name="conveyor"><option value="">Choose to auto-fill</option>' +
       conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">' + esc(c.ConveyorName) + (c.Area ? ' · ' + esc(c.Area) : '') + '</option>'; }).join('') +
       '</select></label>' +
-      '<label>Belt width (mm)<input name="width" type="number" min="1" required inputmode="numeric"></label>' +
-      '<label>Belt rating (N/mm)<input name="rating" type="number" min="1" required inputmode="numeric"></label>' +
+      '<label>Belt width (mm)<input name="width" type="number" min="1" required inputmode="numeric" list="guide-widths"></label>' +
+      '<datalist id="guide-widths">' + guideWidths().map(function (w) { return '<option value="' + w + '">'; }).join('') + '</datalist>' +
+      '<label>Belt rating (N/mm)<input name="rating" required list="guide-ratings" placeholder="e.g. 1000 or ST1000" autocomplete="off"></label>' +
+      '<datalist id="guide-ratings"></datalist>' +
       '<label>No. of plies<input name="plies" type="number" min="1" inputmode="numeric"></label>' +
       '<button class="btn" type="submit">Show heaters</button>' +
       '</div></form><div id="results" class="stack" style="margin-top:20px"></div>';
     var form = $('#form-search');
+    // Suggest the ratings the selection guide lists for the typed width (steel-cord ones like ST1000 included).
+    function fillRatings() {
+      var w = Number(form.width.value), seen = {};
+      var list = ((state.lookups && state.lookups.guide) || []).filter(function (g) { return !w || Number(g.BeltWidth_mm) === w; })
+        .map(function (g) { return String(g.BeltRating); }).filter(function (v) { if (!v || seen[v]) return false; seen[v] = true; return true; });
+      $('#guide-ratings').innerHTML = list.map(function (v) { return '<option value="' + esc(v) + '">'; }).join('');
+    }
+    fillRatings();
+    form.width.addEventListener('input', fillRatings);
+    form.rating.addEventListener('blur', function () {
+      var v = form.rating.value.trim().toUpperCase().replace(/\s+/g, '');
+      form.rating.value = /^(ST)?\d+$/.test(v) ? v : form.rating.value.trim();
+    });
     form.conveyor.addEventListener('change', function () {
       var c = conv.filter(function (x) { return x.ConveyorName === form.conveyor.value; })[0];
       if (!c) return;
       form.width.value = c.BeltWidth_mm || ''; form.rating.value = c.BeltRating_Nmm || ''; form.plies.value = c.Plies || '';
+      fillRatings();
     });
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var f = formData(form), btn = $('button', form);
+      if (!/^(ST)?\d+$/i.test(String(f.rating).replace(/\s+/g, ''))) { toast('Type the rating as a number like 1000, or ST1000 for a steel-cord belt.'); return; }
       busy(btn, true);
       $('#results').innerHTML = '<p class="muted">Checking the store…</p>';
       API.call('heaterSearch', { width: f.width, rating: f.rating, plies: f.plies })
@@ -202,7 +224,10 @@
       statTile('Ready to issue (all types)', t.availableAll) +
       '</div>';
     if (!r.suitable.length) {
-      el.innerHTML = html + '<div class="card"><h2>No suitable heater</h2><p class="muted">No heater model covers a ' + esc(r.query.width) + ' mm belt at ' + esc(r.query.rating) + ' N/mm' + (r.query.plies ? ' with ' + esc(r.query.plies) + ' plies' : '') + '. Contact the RTG Store.</p></div>';
+      var g = r.guide, hint = '';
+      if (g && g.optionsForWidth.length) hint = '<p>For a ' + esc(r.query.width) + ' mm belt the selection guide lists these ratings: <b>' + g.optionsForWidth.map(esc).join(', ') + '</b>. Check the belt rating and plies.</p>';
+      else if (g) hint = '<p>The selection guide has no entry for a ' + esc(r.query.width) + ' mm belt. It covers: ' + g.widths.join(', ') + ' mm.</p>';
+      el.innerHTML = html + '<div class="card"><h2>No suitable heater</h2><p class="muted">' + (g ? 'The RTG selection guide has no heater' : 'No heater model covers') + ' for a ' + esc(r.query.width) + ' mm belt at ' + esc(r.query.rating) + ' N/mm' + (r.query.plies ? ' with ' + esc(r.query.plies) + ' plies' : '') + '. Contact the RTG Store.</p>' + hint + '</div>';
       return;
     }
     html += '<div class="card"><h2>Suitable heater sets</h2>' +
@@ -210,13 +235,15 @@
       '<div class="chart-box" style="height:' + Math.max(140, 56 * r.suitable.length + 50) + 'px"><canvas id="chart-sets" aria-label="Heater sets by status"></canvas></div></div>';
 
     html += r.suitable.map(function (s) {
-      var m = s.model, notUsable = Math.max(0, s.totalSets - s.availableSets - s.deployedCount);
+      var m = s.model, blocked = s.blockedBy && s.blockedBy.length ? 1 : 0;
+      var notUsable = Math.max(0, s.totalSets - s.availableSets - s.deployedCount - blocked);
       var total = Math.max(1, s.totalSets);
       return '<div class="card model-card">' +
         '<div class="model-head"><div><h2>' + esc(m.ModelName) + '</h2><div class="kv">' +
         '<span>Width <b>' + esc(m.BeltWidthMin_mm) + '–' + esc(m.BeltWidthMax_mm) + ' mm</b></span>' +
         (m.RatingMax_Nmm ? '<span>Rating up to <b>' + esc(m.RatingMax_Nmm) + ' N/mm</b></span>' : '') +
         (m.PliesMax ? '<span>Plies up to <b>' + esc(m.PliesMax) + '</b></span>' : '') +
+        (s.madeFrom && s.madeFrom.length ? '<span>Pair of <b>' + s.madeFrom.map(esc).join(' + ') + '</b></span>' : '') +
         '</div></div>' +
         (s.availableSets > 0 ? '<span class="pill good">✓ ' + s.availableSets + ' ready to issue</span>' : '<span class="pill bad">✕ None ready</span>') +
         '</div>' +
@@ -224,6 +251,8 @@
         '<span style="width:' + (100 * s.availableSets / total) + '%;background:var(--series-1)"></span>' +
         '<span style="width:' + (100 * s.deployedCount / total) + '%;background:var(--series-2)"></span>' +
         '<span style="width:' + (100 * notUsable / total) + '%;background:var(--series-muted)"></span></div>' +
+        (blocked ? '<p class="small">Not ready as a pair: ' + s.blockedBy.map(function (b) { return esc(b.via) + ' is out on ' + esc(b.ticket) + (b.conveyor ? ' (' + esc(b.conveyor) + ')' : ''); }).join(', ') + '.</p>' : '') +
+        s.deployments.filter(function (d) { return d.via; }).map(function (d) { return '<p class="small">Out as part of pair ' + esc(d.via) + ' on ' + esc(d.ticket) + '.</p>'; }).join('') +
         '<div class="kv"><span>Sets owned <b>' + s.totalSets + '</b></span><span>Ready <b>' + s.availableSets + '</b></span><span>Out on site <b>' + s.deployedCount + '</b></span><span>Not usable <b>' + notUsable + '</b></span></div>' +
         (s.shortages.length && s.shortages.length < s.componentList.length ? '<p class="small muted">Limiting parts for one more set: ' + s.shortages.map(function (x) { return esc(x.component) + ' (' + x.have + ' of ' + x.need + ')'; }).join(', ') + '</p>' : '') +
         '<details><summary>Components in one set</summary><div class="table-wrap" style="margin-top:10px"><table><thead><tr><th>Component</th><th class="num">Per set</th><th class="num">Ready in store</th></tr></thead><tbody>' +

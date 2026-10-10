@@ -25,6 +25,14 @@ var SCHEMA = {
     "PliesMax",
     "Power_kW",
     "Voltage_V",
+    "Notes",
+    "MadeFrom"
+  ],
+  "HeaterSelection": [
+    "BeltWidth_mm",
+    "BeltRating",
+    "Plies",
+    "HeaterIDs",
     "Notes"
   ],
   "ComponentTypes": [
