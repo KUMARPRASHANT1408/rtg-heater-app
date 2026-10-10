@@ -3914,8 +3914,21 @@ function clearTestData() {
   });
   var batches = sheet_('ConsumableBatches'), values = batches.getDataRange().getValues(), col = values[0].indexOf('BatchNo');
   for (var r = values.length - 1; r >= 1; r--) if (String(values[r][col]).indexOf('SAMPLE') === 0) batches.deleteRows(r + 1, 1);
+  // Put lots that were split on issue (e.g. 8 of 10 cross beams, row "14-D-CB/HEATER_0001") back into their original row.
+  var comps = sheet_('Components'), cv = comps.getDataRange().getValues(), h = cv[0];
+  var idCol = h.indexOf('ComponentID'), qtyCol = h.indexOf('Qty'), remCol = h.indexOf('Remarks'), back = {};
+  for (var i = cv.length - 1; i >= 1; i--) {
+    var m = /^Split from (.+)$/.exec(String(cv[i][remCol] || ''));
+    if (m && String(cv[i][idCol]).indexOf('/') > 0) {
+      back[m[1]] = (back[m[1]] || 0) + (Number(cv[i][qtyCol]) || 0);
+      comps.deleteRows(i + 1, 1);
+    }
+  }
   updateRows('Components', function (c) {
-    return { Status: STATUS.IN_STORE, CurrentTicket: '', CurrentConveyor: '', MaintenanceStatus: MAINT.OK, JointsSinceMaintenance: 0 };
+    var patch = { Status: STATUS.IN_STORE, Condition: CONDITION.OK, CurrentTicket: '', CurrentConveyor: '', MaintenanceStatus: MAINT.OK,
+                  JointsSinceMaintenance: 0, LastInspected: '' };
+    if (back[c.ComponentID]) patch.Qty = (Number(c.Qty) || 0) + back[c.ComponentID];
+    return patch;
   });
   Logger.log('Test data cleared. Numbers start again at 0001.');
 }

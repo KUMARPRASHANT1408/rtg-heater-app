@@ -119,3 +119,16 @@ test('maintenance list marks the parts only a pair has', () => {
   assert.deepStrictEqual([...new Set(rows.filter((r) => r.PairOf).map((r) => r.ModelID + '=' + r.PairOf))], ['14-CD=14-C + 14-D']);
   assert.ok(rows.filter((r) => r.ModelID === '14-C').every((r) => r.PairOf === ''));
 });
+
+test('clearTestData puts split lots back and resets every part', () => {
+  const { ctx, issue } = app();
+  const before = ctx.readTable('Components').length;
+  issue('14-CD', PAIR);
+  assert.ok(ctx.readTable('Components').some((c) => c.ComponentID.startsWith('14-D-CB/')), 'the issue split the beam lot');
+  ctx.updateWhere('Components', 'ComponentID', '14-C-HP1', { Condition: 'Damaged', LastInspected: '2026-10-10' });
+  ctx.clearTestData();
+  const after = ctx.readTable('Components');
+  assert.strictEqual(after.length, before);
+  assert.strictEqual(Number(after.find((c) => c.ComponentID === '14-D-CB').Qty), 10);
+  assert.ok(after.every((c) => c.Status === 'In store' && c.Condition === 'OK' && !c.LastInspected && !c.CurrentTicket));
+});
