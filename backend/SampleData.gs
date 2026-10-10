@@ -1961,5 +1961,176 @@ var SAMPLE_DATA = {
    "SAPStock": "",
    "SAPStockUpdatedOn": ""
   }
+ ],
+ "ConsumableBatches": [
+  {
+   "ItemID": "C01",
+   "BatchNo": "SAMPLE-A1",
+   "Qty": 6,
+   "ExpiryDate": "2027-03-31",
+   "ReceivedOn": "2026-04-02"
+  },
+  {
+   "ItemID": "C01",
+   "BatchNo": "SAMPLE-A2",
+   "Qty": 2,
+   "ExpiryDate": "2026-10-25",
+   "ReceivedOn": "2026-01-15"
+  },
+  {
+   "ItemID": "C04",
+   "BatchNo": "SAMPLE-B1",
+   "Qty": 14,
+   "ExpiryDate": "2027-06-30",
+   "ReceivedOn": "2026-07-01"
+  },
+  {
+   "ItemID": "C08",
+   "BatchNo": "SAMPLE-D1",
+   "Qty": 3,
+   "ExpiryDate": "2026-09-30",
+   "ReceivedOn": "2025-12-10"
+  },
+  {
+   "ItemID": "C11",
+   "BatchNo": "SAMPLE-E1",
+   "Qty": 20,
+   "ExpiryDate": "2027-01-31",
+   "ReceivedOn": "2026-08-05"
+  }
+ ],
+ "ConsumableTransactions": [
+  {
+   "Date": "2026-05-06",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 2,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-05-20",
+   "ItemID": "C04",
+   "Type": "Issue",
+   "Qty": 3,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Raw Material",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-06-03",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 1,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Blast Furnace",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-06-18",
+   "ItemID": "C11",
+   "Type": "Issue",
+   "Qty": 4,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-07-09",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 3,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Raw Material",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-07-22",
+   "ItemID": "C04",
+   "Type": "Issue",
+   "Qty": 2,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-08-05",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 2,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-08-27",
+   "ItemID": "C11",
+   "Type": "Issue",
+   "Qty": 5,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Blast Furnace",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-09-04",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 1,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Raw Material",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-09-16",
+   "ItemID": "C04",
+   "Type": "Issue",
+   "Qty": 4,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Blast Furnace",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-09-29",
+   "ItemID": "C08",
+   "Type": "Issue",
+   "Qty": 1,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  },
+  {
+   "Date": "2026-10-02",
+   "ItemID": "C01",
+   "Type": "Issue",
+   "Qty": 2,
+   "BatchNo": "SAMPLE",
+   "Department": "FM Sinter",
+   "Conveyor": "",
+   "Ref": "SAMPLE",
+   "EnteredBy": "admin"
+  }
  ]
 };

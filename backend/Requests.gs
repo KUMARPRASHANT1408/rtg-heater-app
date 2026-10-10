@@ -314,6 +314,8 @@ function dashboard(user) {
     maintenanceDue: comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
     missing: comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
     transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
-    transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length
+    transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length,
+    consumablePending: readTable('ConsumableRequests').filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length,
+    consumableAlerts: listConsumables().filter(function (c) { return c.lowStock || c.expiringSoon || c.expiredQty > 0; }).length
   };
 }

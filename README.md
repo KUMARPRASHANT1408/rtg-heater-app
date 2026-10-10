@@ -19,7 +19,12 @@ Heater (component by component) and consumables issue, return and tracking for t
   heater. On full approval the ticket, its parts and the return date move to the new conveyor and the extra joint is counted.
   Give approvers the roles `HOD`, `RTG Chief` and `FM Chief` (with their company email) on the Users page.
 
-**Next:** consumables, joint calculator.
+- Stage 4: consumables. Stock by batch with expiry (first-expiring stock is issued first, expired stock never), low-stock and
+  expiry warnings, this month's and average monthly use, department-wise consumption by month, SAP stock vs physical stock.
+  Admins update stock by hand (receipt, issue, correction) or upload a CSV file (every row is checked first; nothing is saved
+  unless all rows are right). Requests: RTGC0001 → admin approve/reject with mail → ticket CONS_0001 → issue deducts stock.
+
+**Next:** joint calculator.
 
 ## Try it without any setup (demo mode)
 

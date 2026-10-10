@@ -56,9 +56,25 @@ CONSUMABLES = ["SAR Jointing Kit", "SHR Jointing Kit", "UHR Jointing Kit", "Rema
 CONS_ROWS = [{"ItemID": f"C{i:02d}", "ItemName": n, "Manufacturer": "", "Unit": "", "ReorderLevel": "", "SAPStock": "", "SAPStockUpdatedOn": ""}
              for i, n in enumerate(CONSUMABLES, 1)]
 
+# Demo stock and six months of issues so the consumables screens have something to show. All marked SAMPLE.
+CONS_BATCHES = [
+    {"ItemID": "C01", "BatchNo": "SAMPLE-A1", "Qty": 6, "ExpiryDate": "2027-03-31", "ReceivedOn": "2026-04-02"},
+    {"ItemID": "C01", "BatchNo": "SAMPLE-A2", "Qty": 2, "ExpiryDate": "2026-10-25", "ReceivedOn": "2026-01-15"},
+    {"ItemID": "C04", "BatchNo": "SAMPLE-B1", "Qty": 14, "ExpiryDate": "2027-06-30", "ReceivedOn": "2026-07-01"},
+    {"ItemID": "C08", "BatchNo": "SAMPLE-D1", "Qty": 3, "ExpiryDate": "2026-09-30", "ReceivedOn": "2025-12-10"},
+    {"ItemID": "C11", "BatchNo": "SAMPLE-E1", "Qty": 20, "ExpiryDate": "2027-01-31", "ReceivedOn": "2026-08-05"},
+]
+CONS_TXNS = [
+    {"Date": f"2026-{m:02d}-{d:02d}", "ItemID": item, "Type": "Issue", "Qty": q, "BatchNo": "SAMPLE", "Department": dept, "Conveyor": "", "Ref": "SAMPLE", "EnteredBy": "admin"}
+    for m, d, item, q, dept in [
+        (5, 6, "C01", 2, "FM Sinter"), (5, 20, "C04", 3, "FM Raw Material"), (6, 3, "C01", 1, "FM Blast Furnace"), (6, 18, "C11", 4, "FM Sinter"),
+        (7, 9, "C01", 3, "FM Raw Material"), (7, 22, "C04", 2, "FM Sinter"), (8, 5, "C01", 2, "FM Sinter"), (8, 27, "C11", 5, "FM Blast Furnace"),
+        (9, 4, "C01", 1, "FM Raw Material"), (9, 16, "C04", 4, "FM Blast Furnace"), (9, 29, "C08", 1, "FM Sinter"), (10, 2, "C01", 2, "FM Sinter")]
+]
+
 SAMPLE = {"HeaterModels": MODELS, "ComponentTypes": TYPES, "Components": build_components(), "Conveyors": CONVEYORS,
           "Departments": [{"Department": d} for d in ["FM Raw Material", "FM Sinter", "FM Blast Furnace", "RTG"]],
-          "Consumables": CONS_ROWS}
+          "Consumables": CONS_ROWS, "ConsumableBatches": CONS_BATCHES, "ConsumableTransactions": CONS_TXNS}
 
 GUIDE = {
     "HeaterModels": "One row per heater TYPE. Width range and max rating decide which belts it suits.",

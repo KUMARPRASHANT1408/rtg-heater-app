@@ -2,7 +2,8 @@
 // The front end POSTs {action, token, data} as text/plain (avoids the CORS preflight Apps Script can't answer).
 
 var ADMIN = ['Admin'];
-var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers'];
+var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
+                 'listConsumables', 'consumableDetail', 'listConsumableRequests'];
 
 // action -> { roles: who may call it (null = any logged-in user), run: function(user, data) }
 var ACTIONS = {
@@ -26,7 +27,16 @@ var ACTIONS = {
   markFound:      { roles: ADMIN, run: function (u, d) { return markFound(u, d); } },
   raiseTransfer:  { roles: null,  run: function (u, d) { return raiseTransfer(u, d); } },
   decideTransfer: { roles: null,  run: function (u, d) { return decideTransfer(u, d); } },
-  listTransfers:  { roles: null,  run: function (u) { return listTransfers(u); } }
+  listTransfers:  { roles: null,  run: function (u) { return listTransfers(u); } },
+  listConsumables:          { roles: null,  run: function () { return listConsumables(); } },
+  consumableDetail:         { roles: null,  run: function (u, d) { return consumableDetail(d); } },
+  saveConsumable:           { roles: ADMIN, run: function (u, d) { return saveConsumable(u, d); } },
+  stockEntry:               { roles: ADMIN, run: function (u, d) { return stockEntry(u, d); } },
+  uploadStock:              { roles: ADMIN, run: function (u, d) { return uploadStock(u, d); } },
+  raiseConsumableRequest:   { roles: null,  run: function (u, d) { return raiseConsumableRequest(u, d); } },
+  listConsumableRequests:   { roles: null,  run: function () { return listConsumableRequests(); } },
+  decideConsumableRequest:  { roles: ADMIN, run: function (u, d) { return decideConsumableRequest(u, d); } },
+  issueConsumable:          { roles: ADMIN, run: function (u, d) { return issueConsumable(u, d); } }
 };
 
 function doPost(e) {
