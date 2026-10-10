@@ -33,18 +33,31 @@ function completeSets(types, counts) {
   return sets === Infinity ? 0 : sets;
 }
 
-function modelStats(model, allTypes, allComponents) {
+// A pair heater (like 14-CD) is built from two single heaters (14-C and 14-D) plus any parts only the pair has.
+// HeaterModels.MadeFrom lists the singles. Returns every model ID whose physical parts this heater uses.
+function partModels(models, modelId) {
+  var m = (models || []).filter(function (x) { return x.ModelID === modelId; })[0];
+  return [modelId].concat(m ? splitIds_(m.MadeFrom) : []);
+}
+
+// ticketModels (optional) maps TicketNo -> the heater the ticket was for. A pair counts only its own tickets as
+// deployed; when a single it is built from is out on its own ticket, that ticket goes in `blockedBy` instead.
+// A single that went out inside a pair counts as deployed, with `via` naming the pair.
+function modelStats(model, allTypes, allComponents, models, ticketModels) {
   var types = allTypes.filter(function (t) { return t.ModelID === model.ModelID; });
-  var comps = allComponents.filter(function (c) { return c.ModelID === model.ModelID; });
-  var owned = {}, usable = {}, deployments = {};
+  var from = partModels(models || [model], model.ModelID);
+  var comps = allComponents.filter(function (c) { return from.indexOf(c.ModelID) >= 0; });
+  var owned = {}, usable = {}, deployments = {}, blocked = {};
   comps.forEach(function (c) {
     var q = num_(c.Qty) || 1;
     if (c.Condition !== CONDITION.SCRAPPED) owned[c.ComponentName] = (owned[c.ComponentName] || 0) + q;
     if (isUsable(c)) usable[c.ComponentName] = (usable[c.ComponentName] || 0) + q;
-    if (c.Status === STATUS.ISSUED && c.CurrentTicket) {
-      var d = deployments[c.CurrentTicket] || (deployments[c.CurrentTicket] = { ticket: c.CurrentTicket, conveyor: c.CurrentConveyor, components: 0 });
-      d.components += q;
-    }
+    if (c.Status !== STATUS.ISSUED || !c.CurrentTicket) return;
+    var tm = (ticketModels && ticketModels[c.CurrentTicket]) || c.ModelID;
+    var mine = tm === model.ModelID || c.ModelID === model.ModelID;
+    var bucket = mine ? deployments : blocked;
+    var d = bucket[c.CurrentTicket] || (bucket[c.CurrentTicket] = { ticket: c.CurrentTicket, conveyor: c.CurrentConveyor, components: 0, via: tm === model.ModelID ? '' : tm });
+    d.components += q;
   });
   var available = completeSets(types, usable);
   // Components that stop one more set being available.
@@ -55,8 +68,11 @@ function modelStats(model, allTypes, allComponents) {
     })
     .filter(function (s) { return s.have < s.need; });
   var deps = Object.keys(deployments).map(function (k) { return deployments[k]; });
+  var blockedBy = Object.keys(blocked).map(function (k) { return blocked[k]; });
   return {
     model: model,
+    madeFrom: from.slice(1),
+    blockedBy: blockedBy,
     totalSets: completeSets(types, owned),
     availableSets: available,
     deployedCount: deps.length,
@@ -78,9 +94,13 @@ function splitIds_(v) {
 }
 
 // Rows of the RTG selection guide that cover this belt: same width, same rating, and same plies when both are given.
+// A rating typed as "ST1000" only matches steel-cord rows; a plain number matches either kind.
+function isSteelCord_(v) { return /^\s*st/i.test(String(v === undefined ? '' : v)); }
 function guideMatches(guide, width, rating, plies) {
+  var st = isSteelCord_(rating), r = ratingNum_(rating);
   return guide.filter(function (g) {
-    if (num_(g.BeltWidth_mm) !== width || ratingNum_(g.BeltRating) !== rating) return false;
+    if (num_(g.BeltWidth_mm) !== width || ratingNum_(g.BeltRating) !== r) return false;
+    if (st && !isSteelCord_(g.BeltRating)) return false;
     return !plies || !g.Plies || num_(g.Plies) === plies;
   });
 }
@@ -89,11 +109,15 @@ function guideMatches(guide, width, rating, plies) {
 // When the HeaterSelection tab has rows, it decides which heaters suit a belt (exactly as the RTG guide says).
 // Otherwise each model's width/rating range is used.
 function heaterSearch(data, width, rating, plies) {
-  width = num_(width); rating = num_(rating); plies = num_(plies);
-  var all = data.models.map(function (m) { return modelStats(m, data.types, data.components); });
+  width = num_(width); plies = num_(plies);
+  var ratingText = String(rating === undefined || rating === null ? '' : rating).trim().toUpperCase().replace(/\s+/g, '');
+  rating = ratingNum_(ratingText);
+  var all = data.models.map(function (m) { return modelStats(m, data.types, data.components, data.models, data.ticketModels); });
+  // Pairs reuse their singles' parts, so store-wide totals count single heaters only.
+  var physical = all.filter(function (s) { return !s.madeFrom.length; });
   var guide = data.guide || [], suitable, guideInfo = null;
   if (guide.length) {
-    var rows = guideMatches(guide, width, rating, plies), ids = {};
+    var rows = guideMatches(guide, width, ratingText, plies), ids = {};
     rows.forEach(function (g) { splitIds_(g.HeaterIDs).forEach(function (id) { ids[id] = true; }); });
     suitable = all.filter(function (s) { return ids[s.model.ModelID]; });
     guideInfo = {
@@ -109,11 +133,11 @@ function heaterSearch(data, width, rating, plies) {
   }
   function sum(list, key) { return list.reduce(function (a, s) { return a + s[key]; }, 0); }
   return {
-    query: { width: width, rating: rating, plies: plies },
+    query: { width: width, rating: ratingText || rating, plies: plies },
     guide: guideInfo,
     totals: {
-      heatersInStore: sum(all, 'totalSets'),
-      availableAll: sum(all, 'availableSets'),
+      heatersInStore: sum(physical, 'totalSets'),
+      availableAll: sum(physical, 'availableSets'),
       suitableTotal: sum(suitable, 'totalSets'),
       suitableAvailable: sum(suitable, 'availableSets'),
       suitableDeployed: sum(suitable, 'deployedCount')
@@ -135,8 +159,10 @@ function formatNumber(prefix, n, width) {
 // Choose physical components for a request. Prefers taking parts from the same set
 // (the set with the most usable parts first) so a heater goes out as matched as possible.
 // requested: [{name, qty}]. Returns {picks: [{ComponentID, ComponentName, Qty, SetNo, lot}], short: [{name, missing}]}.
-function pickComponents(components, modelId, requested) {
-  var usable = components.filter(function (c) { return c.ModelID === modelId && isUsable(c); });
+// fromIds: the model IDs whose parts may be used (see partModels); defaults to just modelId.
+function pickComponents(components, modelId, requested, fromIds) {
+  fromIds = fromIds || [modelId];
+  var usable = components.filter(function (c) { return fromIds.indexOf(c.ModelID) >= 0 && isUsable(c); });
   var setScore = {};
   usable.forEach(function (c) { setScore[c.SetNo] = (setScore[c.SetNo] || 0) + 1; });
   usable.sort(function (a, b) {
@@ -170,5 +196,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }

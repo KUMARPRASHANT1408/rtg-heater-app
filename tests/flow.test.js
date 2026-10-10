@@ -72,7 +72,7 @@ test('full lifecycle: approve, issue by component, partial return with issue, ov
   assert.strictEqual(ok('getRequest', { no: 'RTGH0001' }, fm).suggestion, undefined, 'only admins get the pick list');
 
   // Issue; a damaged part can't be issued.
-  assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: [{ ComponentID: 'HM-01-S3-PB' }] }, admin).error, /different heater model/);
+  assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: [{ ComponentID: 'HM-01-S3-PB' }] }, admin).error, /different heater/);
   ok('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, admin);
   assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks }, admin).error, /already issued/);
   const s1 = ok('heaterSearch', { width: 1200, rating: 1250 }, fm);

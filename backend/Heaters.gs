@@ -1,7 +1,9 @@
 // Heater search and reference lists.
 
 function heaterData_() {
-  return { models: readTable('HeaterModels'), types: readTable('ComponentTypes'), components: readTable('Components'), guide: readTable('HeaterSelection') };
+  var ticketModels = {};
+  readTable('Tickets').forEach(function (t) { ticketModels[t.TicketNo] = t.ModelID; });
+  return { models: readTable('HeaterModels'), types: readTable('ComponentTypes'), components: readTable('Components'), guide: readTable('HeaterSelection'), ticketModels: ticketModels };
 }
 
 function apiHeaterSearch(data) {

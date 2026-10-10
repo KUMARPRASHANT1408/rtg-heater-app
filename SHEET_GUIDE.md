@@ -21,6 +21,12 @@ The Google Sheet is the app's database. Each tab is one table, and **row 1 holds
 | RatingMax_Nmm | The highest belt rating it can do | `1600` |
 | PliesMax | The most plies it can do (leave empty if it doesn't matter) | `5` |
 | Power_kW, Voltage_V, Notes | Optional | |
+| MadeFrom | **Only for a pair heater.** The two single heaters it is built from, with a comma. Leave empty for a single heater. | `14-C, 14-D` |
+
+**Pair heaters.** A pair like `14-CD` is the two singles `14-C` and `14-D` joined together for a high-rating belt. Its row in ComponentTypes lists everything the pair needs (for example 4 heating platens). In Components, the pair only gets the parts the singles do not have (for example pressure plates); the platens, beams and cables are the singles' own rows. So:
+- when a single is out, the pair shows *not ready* and says which single is out;
+- when the pair is out, both singles show as *out as part of the pair*;
+- the other single can still be issued on its own for a low-rating belt.
 
 The width and rating columns decide which heaters **Find a heater** suggests.
 
