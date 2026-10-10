@@ -3583,6 +3583,21 @@ function loadSampleData() {
   Logger.log('Sample data loaded into empty tabs.');
 }
 
+// Locked out? Select this in the Apps Script editor and press Run. It gives the user "admin"
+// a new temporary password (shown in the Execution log) and re-enables the account.
+function resetAdminPassword() {
+  var temp = randomPassword();
+  var salt = newSalt();
+  var fields = { Salt: salt, PasswordHash: hashPassword(temp, salt), MustChangePassword: true, Active: true, Role: 'Admin' };
+  if (!updateWhere('Users', 'UserID', 'admin', fields)) {
+    appendRow('Users', Object.assign({ UserID: 'admin', Name: 'RTG Admin', Team: 'RTG', CreatedOn: new Date() }, fields));
+  }
+  CacheService.getScriptCache().remove('fail:admin');
+  var msg = 'User ID: admin, temporary password: ' + temp + ' (you will be asked to change it).';
+  Logger.log(msg);
+  return msg;
+}
+
 
 // ===== Transfers.gs =====
 // Moving a deployed heater straight to another conveyor without bringing it back to the store.
