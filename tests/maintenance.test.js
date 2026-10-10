@@ -20,14 +20,16 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   ['HM-02-S1-TP', 'HM-02-S1-BP', 'HM-01-S3-PB'].forEach((id) => ctx.updateWhere('Components', 'ComponentID', id, { MaintenanceStatus: 'Due' }));
   assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 3);
   assert.match(call('maintenanceDue', {}, fm).error, /permission/);
-  assert.deepStrictEqual(ok('maintenanceDue', {}, vendor).map((c) => c.ComponentID).sort(), ['HM-01-S3-PB', 'HM-02-S1-BP', 'HM-02-S1-TP']);
+  const listed = ok('maintenanceDue', {}, vendor);
+  assert.deepStrictEqual(listed.filter((c) => c.due).map((c) => c.ComponentID).sort(), ['HM-01-S3-PB', 'HM-02-S1-BP', 'HM-02-S1-TP']);
+  assert.ok(listed.length > 3, 'every heater in store is listed for routine maintenance');
 
   const file = { name: 'c.jpg', type: 'image/jpeg', data: Buffer.from('fake jpeg').toString('base64') };
   const base = { ComponentIDs: ['HM-02-S1-TP', 'HM-02-S1-BP'], WorkDone: 'Cleaned platens, checked wiring', file };
   assert.match(call('logMaintenance', base, fm).error, /vendor team/);
   assert.match(call('logMaintenance', Object.assign({}, base, { file: null }), vendor).error, /checklist/);
   assert.match(call('logMaintenance', Object.assign({}, base, { file: { type: 'text/plain', data: 'eA==' } }), vendor).error, /photo/);
-  assert.match(call('logMaintenance', Object.assign({}, base, { ComponentIDs: ['HM-03-S1-TP'] }), vendor).error, /not waiting/);
+  assert.match(call('logMaintenance', Object.assign({}, base, { ComponentIDs: ['NOPE-1'] }), vendor).error, /not in the store/);
   const { LogNo } = ok('logMaintenance', base, vendor);
   assert.strictEqual(LogNo, 'MNT0001');
   assert.match(call('logMaintenance', base, vendor).error, /already in log MNT0001/);
@@ -54,6 +56,10 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   ok('verifyMaintenance', { LogNo: n3, decision: 'approve' }, admin);
   const pb = ok('components', {}, admin).find((c) => c.ComponentID === 'HM-01-S3-PB');
   assert.deepStrictEqual([pb.Condition, pb.MaintenanceStatus], ['OK', 'OK']);
+  // Routine maintenance on a heater that wasn't due just records the date.
+  const n4 = ok('logMaintenance', { ComponentIDs: ['HM-03-S1-TP'], WorkDone: 'Monthly check', file }, vendor).LogNo;
+  ok('verifyMaintenance', { LogNo: n4, decision: 'approve' }, admin);
+  assert.strictEqual(ok('components', {}, admin).find((c) => c.ComponentID === 'HM-03-S1-TP').LastInspected, ctx.today());
 });
 
 test('clearTestData removes test activity but keeps master data and users', () => {
