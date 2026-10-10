@@ -1,0 +1,8 @@
+{
+  "name": "rtg-heater-store",
+  "private": true,
+  "scripts": {
+    "build": "python3 tools/build.py",
+    "test": "node --test tests/*.test.js && RTG_BUNDLE=1 node --test tests/*.test.js"
+  }
+}

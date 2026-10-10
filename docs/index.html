@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTG Heater Store</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f3a68'/><path d='M9 22c3-3 3-6 0-9m7 9c3-3 3-6 0-9m7 9c3-3 3-6 0-9' stroke='%23eb6834' stroke-width='2.5' fill='none' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner hidden">Demo mode: sample data stored only in this browser. Log in as <b>admin / admin123</b> or <b>fm01 / fm12345</b>.</div>
+  <header id="topbar" class="topbar hidden">
+    <a class="brand" href="#/home"><span class="brand-mark">♨</span><span>RTG Heater Store</span></a>
+    <nav id="nav" class="nav"></nav>
+    <div class="who">
+      <span class="name" id="who-name"></span><span class="role" id="who-role"></span>
+      <button class="icon-btn" id="btn-password" type="button">Password</button>
+      <button class="icon-btn" id="btn-logout" type="button">Log out</button>
+    </div>
+  </header>
+  <main id="view"></main>
+
+  <dialog id="dlg-password">
+    <form id="form-password">
+      <h2>Change password</h2>
+      <p class="muted small" id="pw-reason"></p>
+      <label>Current password<input type="password" name="oldPassword" required autocomplete="current-password"></label>
+      <label>New password (min 8 characters)<input type="password" name="newPassword" required minlength="8" autocomplete="new-password"></label>
+      <label>Repeat new password<input type="password" name="repeat" required minlength="8" autocomplete="new-password"></label>
+      <div class="alert error hidden" id="pw-error"></div>
+      <div class="actions"><button class="btn secondary" type="button" id="pw-cancel">Cancel</button><button class="btn" type="submit">Save</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-user">
+    <form id="form-user">
+      <h2 id="user-title">Add user</h2>
+      <div class="row">
+        <label>User ID (used to log in)<input name="UserID" required></label>
+        <label>Name<input name="Name" required></label>
+      </div>
+      <div class="row">
+        <label>Employee ID<input name="EmployeeID"></label>
+        <label>Company email<input name="Email" type="email"></label>
+      </div>
+      <div class="row">
+        <label>Role
+          <select name="Role">
+            <option>Local</option><option>Admin</option><option>HOD</option><option>RTG Chief</option><option>FM Chief</option>
+          </select>
+        </label>
+        <label>Team
+          <select name="Team"><option>FM</option><option>RTG</option><option>Vendor</option></select>
+        </label>
+      </div>
+      <div class="row">
+        <label>Department<input name="Department" list="dept-list"></label>
+        <label>Phone<input name="Phone"></label>
+      </div>
+      <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="Active" checked style="min-height:auto"> Active (can log in)</label>
+      <div class="alert error hidden" id="user-error"></div>
+      <div class="actions"><button class="btn secondary" type="button" id="user-cancel">Cancel</button><button class="btn" type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <datalist id="dept-list"></datalist>
+
+  <script src="assets/vendor/chart.umd.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/logic.js"></script>
+  <script src="assets/js/gas-fake.js"></script>
+  <script>if (!window.RTG_CONFIG.API_URL) document.write('<script src="assets/js/backend-bundle.js"><\/script>');</script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
