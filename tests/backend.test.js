@@ -117,3 +117,10 @@ test('fake sha256 matches the real thing', () => {
     assert.strictEqual(GasFake.base64(ctxBytes), want, s);
   }
 });
+
+test('resetAdminPassword recovers a locked-out admin', () => {
+  const { ctx, call } = freshApp();
+  for (let i = 0; i < 5; i++) call('login', { userId: 'admin', password: 'x' });
+  const temp = /temporary password: (\S+)/.exec(ctx.resetAdminPassword())[1];
+  assert.ok(call('login', { userId: 'admin', password: temp }).ok);
+});

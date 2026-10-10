@@ -159,7 +159,7 @@
 
   var NAMES = ['SpreadsheetApp', 'CacheService', 'LockService', 'Utilities', 'Session', 'MailApp', 'Logger', 'ContentService', 'ScriptApp'];
   var EXPORTS = ['handle', 'setup', 'loadSampleData', 'readTable', 'updateWhere', 'appendRow', 'hashPassword', 'newSalt', 'nextNumber', 'queueMail',
-                 'sendOverdueMails', 'today', 'SCHEMA'];
+                 'sendOverdueMails', 'today', 'resetAdminPassword', 'SCHEMA'];
 
   // Runs the backend source with the fakes injected; returns its functions.
   function loadBackend(source, services) {
