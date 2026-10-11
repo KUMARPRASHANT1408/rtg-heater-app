@@ -279,7 +279,7 @@ svg.splice .seg:hover { fill-opacity: 1 !important; }
 @media print { #sim-form, .sim-bar { display: none !important; } }
 @media (max-width: 600px) { svg.splice text { font-size: 22px; } }
 
-/* First-open intro (index.html #intro). Transforms and opacity only, so the phone's GPU does the work. */
+/* Opening intro (index.html #intro). Transforms and opacity only, so the phone's GPU does the work. */
 .intro { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 6px; overflow: hidden; cursor: pointer;
   background: radial-gradient(circle at 50% 42%, #24467d 0%, #13254a 45%, #0a1428 100%); color: #fff; transition: opacity .45s ease; }
 .intro.out { opacity: 0; pointer-events: none; }
