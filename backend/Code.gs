@@ -4,7 +4,7 @@
 var ADMIN = ['Admin'];
 var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
                  'listConsumables', 'consumableDetail', 'listConsumableRequests',
-                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist'];
+                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
 
 // action -> { roles: who may call it (null = any logged-in user), run: function(user, data) }
 var ACTIONS = {
@@ -46,6 +46,10 @@ var ACTIONS = {
   listMaintenanceLogs:      { roles: null,  run: function (u) { return listMaintenanceLogs(u); } },
   getChecklist:             { roles: null,  run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { roles: ADMIN, run: function (u, d) { return verifyMaintenance(u, d); } },
+  masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
+  masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
+  masterDelete:             { roles: ADMIN, run: function (u, d) { return apiMasterDelete(u, d); } },
+  adminLog:                 { roles: ADMIN, run: function (u, d) { return apiLog(d); } },
   clearTestData:            { roles: ADMIN, run: function (u) { clearTestData(); audit(u.UserID, 'clearTestData'); return { ok: true }; } }
 };
 

@@ -44,12 +44,14 @@
     { hash: '#/consumables', label: 'Consumables' },
     { hash: '#/maintenance', label: 'Maintenance', maint: true },
     { hash: '#/inventory', label: 'Inventory', admin: true },
-    { hash: '#/users', label: 'Users', admin: true }
+    { hash: '#/users', label: 'Users', admin: true },
+    { hash: '#/admin', label: 'Settings', admin: true }
   ];
   var ROUTES = { '#/home': renderHome, '#/heaters': renderHeaters, '#/inventory': renderInventory, '#/users': renderUsers,
                  '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers,
-                 '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator };
-  var ADMIN_ROUTES = ['#/inventory', '#/users'];
+                 '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator,
+                 '#/admin': renderAdmin };
+  var ADMIN_ROUTES = ['#/inventory', '#/users', '#/admin'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
   function parseHash() {
@@ -1644,6 +1646,139 @@
         }).join('') + '</tbody></table></div>';
       view.addEventListener('click', onUserClick);
     }).catch(handleError);
+  }
+
+  // ---------- settings, lists and logs (admins) ----------
+  // What used to be typed into the Google Sheet. On Supabase the Sheet is only a nightly copy, so edits belong here.
+  var ADMIN_TABS = [['Settings', 'Settings'], ['Conveyors', 'Conveyors'], ['Departments', 'Departments'], ['AuditLog', 'Activity log'], ['MailOutbox', 'Mail log']];
+  var LIST_HELP = {
+    Settings: 'Mail addresses and timings the app uses. Several addresses: separate them with commas.',
+    Conveyors: 'The conveyor list for requests and the joint calculator. Upload a CSV file to add many at once (same name = updated).',
+    Departments: 'Departments that consume material.'
+  };
+  function renderAdmin(arg, params) {
+    var tab = ADMIN_TABS.some(function (t) { return t[0] === params.t; }) ? params.t : 'Settings';
+    var isLog = tab === 'AuditLog' || tab === 'MailOutbox';
+    view.innerHTML = '<div class="page-head"><div><h1>Settings</h1><p class="muted">' + esc(isLog ? (tab === 'AuditLog' ? 'Who did what, newest first.' : 'Every mail the app sent to the company inbox, newest first.') : LIST_HELP[tab]) + '</p></div></div>' +
+      '<div class="chips">' + ADMIN_TABS.map(function (t) {
+        return '<a class="chip' + (t[0] === tab ? ' active' : '') + '" href="#/admin?t=' + t[0] + '">' + esc(t[1]) + '</a>';
+      }).join('') + '</div><div class="card" id="admin-box"><p class="muted">Loading…</p></div>';
+    var box = $('#admin-box');
+    if (isLog) {
+      API.call('adminLog', { log: tab }).then(function (d) { renderLog(box, d); }).catch(handleError);
+    } else {
+      API.call('masterList', { tab: tab }).then(function (d) { (tab === 'Settings' ? renderSettingsList : renderMasterList)(box, d); }).catch(handleError);
+    }
+  }
+
+  function renderLog(box, d) {
+    function draw(filter) {
+      var f = filter.toLowerCase();
+      var rows = d.rows.filter(function (r) { return !f || d.columns.some(function (c) { return String(r[c]).toLowerCase().indexOf(f) >= 0; }); });
+      $('#log-rows', box).innerHTML = rows.map(function (r) {
+        return '<tr>' + d.columns.map(function (c) {
+          var v = String(r[c] === undefined ? '' : r[c]);
+          return '<td' + (c === 'Details' || c === 'Subject' ? ' class="small"' : ' style="white-space:nowrap"') + '>' + esc(v.length > 160 ? v.slice(0, 160) + '…' : v) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') || '<tr><td colspan="' + d.columns.length + '" class="muted">Nothing found.</td></tr>';
+    }
+    box.innerHTML = '<input type="search" id="log-filter" placeholder="Search (user, action, ticket number…)" style="max-width:360px;margin-bottom:12px">' +
+      '<div class="table-wrap"><table><thead><tr>' + d.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody id="log-rows"></tbody></table></div>' +
+      (d.more ? '<p class="muted small">Showing the newest ' + d.rows.length + '. The full log is in the Google Sheet copy.</p>' : '');
+    draw('');
+    $('#log-filter', box).addEventListener('input', function () { draw(this.value); });
+  }
+
+  function renderSettingsList(box, d) {
+    box.innerHTML = '<form id="settings-form"><div class="table-wrap"><table><thead><tr><th>Setting</th><th style="min-width:260px">Value</th><th>What it is for</th></tr></thead><tbody>' +
+      d.rows.map(function (r) {
+        return '<tr><td><b>' + esc(r.Key) + '</b></td><td><input name="' + esc(r.Key) + '" value="' + esc(r.Value) + '"></td><td class="small muted">' + esc(r.Notes) + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="alert error hidden"></div><div class="actions"><button class="btn" type="submit">Save settings</button></div></form>';
+    $('#settings-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var form = this, btn = $('button[type=submit]', form), vals = formData(form);
+      var changed = d.rows.filter(function (r) { return String(vals[r.Key]) !== String(r.Value); }).map(function (r) { return { Key: r.Key, Value: vals[r.Key] }; });
+      if (!changed.length) return toast('Nothing changed.');
+      busy(btn, true);
+      API.call('masterSave', { tab: 'Settings', rows: changed }).then(function () {
+        toast(changed.length + ' setting' + (changed.length === 1 ? '' : 's') + ' saved');
+        changed.forEach(function (c) { d.rows.forEach(function (r) { if (r.Key === c.Key) r.Value = c.Value; }); });
+        busy(btn, false);
+      }).catch(function (err) { busy(btn, false); showError($('.alert', form), err); });
+    });
+  }
+
+  function renderMasterList(box, d) {
+    var noun = d.tab === 'Conveyors' ? 'conveyor' : 'department';
+    box.innerHTML = '<div class="actions" style="justify-content:flex-start;margin:0 0 12px">' +
+      '<button class="btn" type="button" id="m-add">+ Add ' + noun + '</button>' +
+      (d.tab === 'Conveyors' ? '<button class="btn secondary" type="button" id="m-upload">Upload CSV</button><button class="btn secondary" type="button" id="m-template">Download template</button>' : '') +
+      '</div><div class="table-wrap"><table><thead><tr>' + d.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>' +
+      (d.rows.map(function (r, i) {
+        return '<tr>' + d.columns.map(function (c, j) { return '<td>' + (j === 0 ? '<b>' + esc(r[c]) + '</b>' : esc(r[c])) + '</td>'; }).join('') +
+          '<td style="white-space:nowrap"><button class="btn secondary small" type="button" data-medit="' + i + '">Edit</button> <button class="btn danger small" type="button" data-mdel="' + i + '">Delete</button></td></tr>';
+      }).join('') || '<tr><td colspan="' + (d.columns.length + 1) + '" class="muted">None yet.</td></tr>') + '</tbody></table></div>' +
+      '<p class="muted small">' + d.rows.length + ' ' + noun + (d.rows.length === 1 ? '' : 's') + '.</p>';
+    function reload() {
+      renderAdmin('', { t: d.tab });
+      // Dropdowns elsewhere use the lists too.
+      API.call('lookups').then(function (l) {
+        state.lookups = l;
+        $('#dept-list').innerHTML = l.departments.map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
+      }).catch(function () {});
+    }
+    function edit(r) {
+      formDialog((r ? 'Edit ' : 'Add ') + noun, d.columns.map(function (c) {
+        return '<label>' + esc(c) + (c === d.key ? ' *' : '') + '<input name="' + esc(c) + '" value="' + esc(r ? r[c] : '') + '"' + (c === d.key ? ' required' : '') +
+          (/_mm|_Nmm|Plies/.test(c) ? ' inputmode="numeric"' : '') + '></label>';
+      }).join(''), 'Save', function (vals, dlg) {
+        return API.call('masterSave', { tab: d.tab, rows: [vals], originalKey: r ? r[d.key] : '' }).then(function () { dlg.close(); toast('Saved'); reload(); });
+      });
+    }
+    $('#m-add', box).addEventListener('click', function () { edit(null); });
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.medit) edit(d.rows[b.dataset.medit]);
+      if (b.dataset.mdel) {
+        var r = d.rows[b.dataset.mdel];
+        if (!confirm('Delete ' + noun + ' "' + r[d.key] + '"? Old requests and tickets keep its name.')) return;
+        busy(b, true);
+        API.call('masterDelete', { tab: d.tab, key: r[d.key] }).then(function () { toast('Deleted'); reload(); }).catch(function (err) { busy(b, false); toast(err.message); });
+      }
+    });
+    if (d.tab !== 'Conveyors') return;
+    $('#m-template', box).addEventListener('click', function () {
+      var lines = [d.columns.join(','), 'CNV-101,Raw Material,1200,1250,4,'];
+      saveFile('conveyors_template.csv', new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
+    });
+    $('#m-upload', box).addEventListener('click', function () {
+      var input = document.createElement('input');
+      input.type = 'file'; input.accept = '.csv,text/csv';
+      input.addEventListener('change', function () {
+        var file = input.files[0];
+        if (!file) return;
+        var rd = new FileReader();
+        rd.onload = function () {
+          var rows = parseCsv(String(rd.result));
+          if (rows.length < 2) return toast('The file needs a header row and at least one conveyor.');
+          var head = rows[0].map(function (h) { return String(h).trim().replace(/\s+/g, '').toLowerCase(); });
+          var idx = d.columns.map(function (c) { return head.indexOf(c.toLowerCase()); });
+          if (idx[0] < 0) return toast('The header row needs a ' + d.key + ' column. Download the template to see the layout.');
+          var objs = rows.slice(1).map(function (r) {
+            var o = {};
+            d.columns.forEach(function (c, i) { if (idx[i] >= 0) o[c] = String(r[idx[i]] === undefined ? '' : r[idx[i]]).trim(); });
+            return o;
+          });
+          if (!confirm('Save ' + objs.length + ' conveyor' + (objs.length === 1 ? '' : 's') + ' from ' + file.name + '? Conveyors with the same name are updated.')) return;
+          API.call('masterSave', { tab: d.tab, rows: objs }).then(function (res) {
+            toast(res.added + ' added, ' + res.updated + ' updated'); reload();
+          }).catch(function (err) { alert(err.message); });
+        };
+        rd.readAsText(file);
+      });
+      input.click();
+    });
   }
 
   function onUserClick(e) {

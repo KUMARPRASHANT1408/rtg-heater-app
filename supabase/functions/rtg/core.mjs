@@ -7,6 +7,7 @@ import { GasFake, makeBackend } from './backend.mjs';
 
 // Tabs the app only ever adds to. They are never loaded (they grow forever); new rows are just inserted.
 const APPEND_ONLY = ['AuditLog', 'MailOutbox'];
+const LOG_LIMIT = 300; // newest rows shown on the admin page (same as backend/Admin.gs)
 const TABLES = 6; // tables in the DDL below
 const WRITE_LOCK = 7151; // pg_advisory_xact_lock key: one writer at a time, like Apps Script's LockService
 const IST_MS = 330 * 60000;
@@ -270,6 +271,7 @@ export function makeServer(opts) {
       var action = String(req.action || '');
       if (action.indexOf('relay') === 0) return await relay(action, req);
       if (action === 'storageInfo') return await storageInfo(req);
+      if (action === 'adminLog') return await adminLog(req);
       var write = READ_ONLY.indexOf(action) < 0; // login and logout count as writes (sessions)
       return await run(write, function (api, ctx) {
         if (action === 'clearTestData') ctx.truncate = APPEND_ONLY.slice();
@@ -292,6 +294,31 @@ export function makeServer(opts) {
       var size = await q('select pg_database_size(current_database())::float8 as b');
       var fileBytes = await files.bytes(q);
       return { ok: true, data: { dbBytes: Number(size[0].b), dbLimit: DB_LIMIT, fileBytes: fileBytes, fileLimit: FILE_LIMIT } };
+    });
+  }
+
+  // The activity and mail logs are never loaded into memory (they only grow), so read their newest rows straight from Postgres.
+  // Same answer as the backend's apiLog().
+  async function adminLog(req) {
+    var d = req.data || {};
+    var tab = APPEND_ONLY.indexOf(d.log) >= 0 ? d.log : 'AuditLog';
+    return run(false, function (api) {
+      try { api.requireUser(req.token, ['Admin']); } catch (err) { return { ok: false, error: err.message, auth: !!err.auth }; }
+      return { ok: true };
+    }, async function (q, ctx, res) {
+      if (!res.ok) return res;
+      var head = await q('select header from rtg.tabs where tab = $1', [tab]);
+      var rows = await q('select data from rtg.rows where tab = $1 order by id desc limit ' + (LOG_LIMIT + 1), [tab]);
+      var cols = head.length ? head[0].header : [];
+      var out = rows.slice(0, LOG_LIMIT).map(function (r) {
+        var o = {};
+        cols.forEach(function (c, i) {
+          var v = r.data[i] === undefined ? '' : r.data[i];
+          o[c] = v && typeof v === 'object' && v.$d ? formatDateIST(v.$d, '', 'yyyy-MM-dd HH:mm') : v;
+        });
+        return o;
+      });
+      return { ok: true, data: { log: tab, columns: cols, rows: out, more: rows.length > LOG_LIMIT } };
     });
   }
 
