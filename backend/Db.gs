@@ -21,8 +21,10 @@ function readTable(name) {
 
 function cell_(v) {
   if (v instanceof Date) {
-    var hasTime = v.getHours() || v.getMinutes();
-    return Utilities.formatDate(v, Session.getScriptTimeZone(), hasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd');
+    // Ask the script's time zone, not the machine's, whether the cell has a time (the Supabase server runs on UTC).
+    var tz = Session.getScriptTimeZone();
+    var hasTime = Utilities.formatDate(v, tz, 'HH:mm') !== '00:00';
+    return Utilities.formatDate(v, tz, hasTime ? 'yyyy-MM-dd HH:mm' : 'yyyy-MM-dd');
   }
   return v;
 }
