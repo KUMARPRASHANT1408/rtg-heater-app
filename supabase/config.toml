@@ -1,0 +1,6 @@
+# Only what the deploy needs. The database tables are made by the function itself on its first request.
+project_id = "rtg-heater-app"
+
+[functions.rtg]
+# The app logs people in with its own user IDs, so Supabase's own login check is switched off for this function.
+verify_jwt = false

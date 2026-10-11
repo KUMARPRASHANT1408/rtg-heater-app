@@ -10,9 +10,17 @@ function backendSource() {
   return fs.readdirSync(dir).filter((f) => f.endsWith('.gs')).sort().map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
 }
 
+// RTG_EDGE=1 runs the tests on the strict-mode module the Supabase server uses (no sample data inside it).
+function edgeBackend(services) {
+  const { makeBackend } = require('../supabase/functions/rtg/backend.mjs');
+  const api = makeBackend.apply(null, GasFake.NAMES.map((n) => services[n]));
+  const sample = GasFake.loadBackend(backendSource(), services);
+  return Object.assign({}, sample, api, { services });
+}
+
 function makeContext() {
   const services = GasFake.makeServices();
-  const api = GasFake.loadBackend(backendSource(), services);
+  const api = process.env.RTG_EDGE ? edgeBackend(services) : GasFake.loadBackend(backendSource(), services);
   api.__sheets = services.__sheets;
   api.__mails = services.__mails;
   return api;

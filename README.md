@@ -4,6 +4,7 @@ Heater (component by component) and consumables issue, return and tracking for t
 
 - **Front end**: `docs/`, plain HTML/CSS/JS served by GitHub Pages. No build step.
 - **Backend**: Google Apps Script web app over one Google Sheet (`backend/`, or the single pasted file `dist/Code.gs`).
+- **Or on Supabase** (faster): `supabase/` runs the same backend on a Postgres database. Setup steps: `SUPABASE.md`.
 - **Mail**: the script never mails people. It mails your one company inbox and a Power Automate flow sends the real mails from company mail.
 
 **Built so far**

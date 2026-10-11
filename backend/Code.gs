@@ -45,7 +45,8 @@ var ACTIONS = {
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
   listMaintenanceLogs:      { roles: null,  run: function (u) { return listMaintenanceLogs(u); } },
   getChecklist:             { roles: null,  run: function (u, d) { return getChecklist(u, d); } },
-  verifyMaintenance:        { roles: ADMIN, run: function (u, d) { return verifyMaintenance(u, d); } }
+  verifyMaintenance:        { roles: ADMIN, run: function (u, d) { return verifyMaintenance(u, d); } },
+  clearTestData:            { roles: ADMIN, run: function (u) { clearTestData(); audit(u.UserID, 'clearTestData'); return { ok: true }; } }
 };
 
 function doPost(e) {

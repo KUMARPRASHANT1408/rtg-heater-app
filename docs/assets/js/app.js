@@ -1609,8 +1609,29 @@
 
   // ---------- users (admin) ----------
   function renderUsers() {
-    view.innerHTML = '<div class="page-head"><div><h1>Users</h1><p class="muted">Choose who is an admin or approver. New users get a temporary password.</p></div><button class="btn" id="add-user" type="button">+ Add user</button></div><div class="card"><p class="muted">Loading…</p></div>';
+    view.innerHTML = '<div class="page-head"><div><h1>Users</h1><p class="muted">Choose who is an admin or approver. New users get a temporary password.</p></div><button class="btn" id="add-user" type="button">+ Add user</button></div><div class="card"><p class="muted">Loading…</p></div>' +
+      '<div class="card" style="margin-top:20px"><h2>Data</h2><div id="storage-box"></div>' +
+      '<p class="muted small">Before going live, clear the test data: every request, ticket, issue, transfer, consumable movement, maintenance log, mail log and audit row is deleted and numbers start again at 0001. Users, settings, heaters, conveyors and consumables stay.</p>' +
+      '<button class="btn danger small" id="clear-test" type="button">Clear test data</button></div>';
     $('#add-user').addEventListener('click', function () { openUser(null); });
+    $('#clear-test').addEventListener('click', function () {
+      var b = this;
+      if (prompt('This deletes all requests, tickets and history. It cannot be undone.\n\nType CLEAR to continue.') !== 'CLEAR') return;
+      busy(b, true);
+      API.call('clearTestData').then(function () { busy(b, false); toast('Test data cleared. Numbers start again at 0001.'); })
+        .catch(function (err) { busy(b, false); toast(err.message); });
+    });
+    // Supabase only: how full the free storage is. Hidden on the Google Sheets version.
+    API.call('storageInfo').then(function (st) {
+      function bar(label, used, limit) {
+        var pct = Math.min(100, Math.round(used / limit * 100)), tone = pct >= 80 ? 'bad' : pct >= 60 ? 'warn' : 'good';
+        return '<div style="margin:10px 0"><div class="small">' + esc(label) + ': <b>' + mb(used) + '</b> of ' + mb(limit) + ' (' + pct + '%)</div>' +
+          '<div class="meter" role="img" aria-label="' + esc(label) + ' ' + pct + '% used"><span style="width:' + Math.max(pct, 1) + '%;background:var(--' + tone + ')"></span></div>' +
+          (pct >= 80 ? '<div class="small" style="color:var(--bad)">Almost full. Ask Claude to free space or move old records out.</div>' : '') + '</div>';
+      }
+      function mb(b) { return b >= 1024 * 1024 * 1024 ? (b / 1073741824).toFixed(1) + ' GB' : (b / 1048576).toFixed(1) + ' MB'; }
+      $('#storage-box').innerHTML = bar('Database', st.dbBytes, st.dbLimit) + bar('Checklist photos', st.fileBytes, st.fileLimit);
+    }).catch(function () { /* Google Sheets version: no meter */ });
     API.call('listUsers').then(function (users) {
       state.users = users;
       $('.card', view).innerHTML = '<div class="table-wrap"><table><thead><tr><th>User ID</th><th>Name</th><th>Employee ID</th><th>Role</th><th>Team</th><th>Email</th><th>Status</th><th></th></tr></thead><tbody>' +

@@ -104,6 +104,7 @@
         return range;
       },
       deleteRows: function (start, n) { data.splice(start - 1, n); },
+      clearContents: function () { data.length = 0; return sheet; },
       setFrozenRows: function () {}
     };
     return sheet;
@@ -116,7 +117,8 @@
   function makeServices(opts) {
     opts = opts || {};
     var raw = opts.load ? opts.load() : null;
-    var state = raw ? JSON.parse(raw, revive) : { sheets: {}, cache: {} };
+    // opts.state: an already-built state object (the Supabase server loads it from Postgres).
+    var state = opts.state || (raw ? JSON.parse(raw, revive) : { sheets: {}, cache: {} });
     var sheets = {};
     Object.keys(state.sheets).forEach(function (n) { sheets[n] = makeSheet(n, state.sheets[n]); });
     var mails = [];
@@ -190,7 +192,7 @@
     return api;
   }
 
-  var GasFake = { makeServices: makeServices, loadBackend: loadBackend, sha256: sha256, base64: base64 };
-  if (typeof module !== 'undefined') module.exports = GasFake;
-  else root.GasFake = GasFake;
+  var GasFake = { makeServices: makeServices, loadBackend: loadBackend, sha256: sha256, base64: base64, utf8: utf8, NAMES: NAMES };
+  if (root) root.GasFake = GasFake;
+  if (typeof module !== 'undefined' && module.exports) module.exports = GasFake;
 })(this);
