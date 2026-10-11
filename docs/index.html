@@ -11,9 +11,32 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><marker id='ah' viewBox='0 0 10 10' refX='3' refY='5' markerWidth='3' markerHeight='3' orient='auto'><path d='M0 0L10 5L0 10Z' fill='%232fb3a0'/></marker><filter id='gl' x='-1' y='-1' width='3' height='3'><feGaussianBlur stdDeviation='1.4'/></filter></defs><rect width='64' height='64' rx='14' fill='%230f1f3d'/><g fill='none' stroke='%232fb3a0' stroke-width='2.4' stroke-linecap='round' marker-end='url(%23ah)'><path d='M10.6 26A22 22 0 0 1 52.9 25'/><path d='M53.4 38A22 22 0 0 1 11.1 39'/></g><rect x='13' y='13' width='38' height='10' rx='2.5' fill='%233b4a66'/><rect x='13' y='41' width='38' height='10' rx='2.5' fill='%233b4a66'/><path d='M17 16.5H47M17 19.5H47M17 44.5H47M17 47.5H47' stroke='%23ff7a3d' stroke-width='1.8' stroke-linecap='round'/><path d='M0 26H36V30H32V34H28V38H0Z' fill='%235b7aa6'/><path d='M64 26H36V30H32V34H28V38H64Z' fill='%23cdd5e0'/><path d='M0 30H32M0 34H28' stroke='%2347638e'/><path d='M36 30H64M32 34H64' stroke='%23aab5c4'/><path d='M36 26V30H32V34H28V38' fill='none' stroke='%23ff7a3d' stroke-width='3' stroke-linejoin='round' filter='url(%23gl)'/><path d='M36 26V30H32V34H28V38' fill='none' stroke='%23ff8a50' stroke-width='2' stroke-linejoin='round'/></svg>">
   <link rel="apple-touch-icon" href="assets/icon-512.png">
-  <link rel="stylesheet" href="assets/css/app.css?v=85903660">
+  <link rel="stylesheet" href="assets/css/app.css?v=666bf6c1">
 </head>
 <body>
+  <!-- First-open intro: the logo builds itself. Plays once per device; tap to skip. Only CSS transforms, so it costs nothing after it ends. -->
+  <div id="intro" class="intro" aria-hidden="true">
+    <svg class="intro-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <defs><marker id="iah" viewBox="0 0 10 10" refX="3" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#2fb3a0"/></marker><filter id="igl" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
+      <g class="i-ring"><g fill="none" stroke="#2fb3a0" stroke-width="2.4" stroke-linecap="round" marker-end="url(#iah)"><path d="M10.6 26A22 22 0 0 1 52.9 25"/><path d="M53.4 38A22 22 0 0 1 11.1 39"/></g></g>
+      <g class="i-top"><rect x="13" y="13" width="38" height="10" rx="2.5" fill="#3b4a66"/><path class="i-hot" d="M17 16.5H47M17 19.5H47" stroke="#ff7a3d" stroke-width="1.8" stroke-linecap="round"/></g>
+      <g class="i-bot"><rect x="13" y="41" width="38" height="10" rx="2.5" fill="#3b4a66"/><path class="i-hot" d="M17 44.5H47M17 47.5H47" stroke="#ff7a3d" stroke-width="1.8" stroke-linecap="round"/></g>
+      <g class="i-left"><path d="M-160 26H36V30H32V34H28V38H-160Z" fill="#5b7aa6"/><path d="M-160 30H32M-160 34H28" stroke="#47638e"/></g>
+      <g class="i-right"><path d="M224 26H36V30H32V34H28V38H224Z" fill="#cdd5e0"/><path d="M36 30H224M32 34H224" stroke="#aab5c4"/></g>
+      <g class="i-joint"><path d="M36 26V30H32V34H28V38" fill="none" stroke="#ff7a3d" stroke-width="3" stroke-linejoin="round" filter="url(#igl)"/><path d="M36 26V30H32V34H28V38" fill="none" stroke="#ff8a50" stroke-width="2" stroke-linejoin="round"/></g>
+    </svg>
+    <div class="intro-title">RTG Heater Management</div>
+    <div class="intro-sub">RTG Store</div>
+  </div>
+  <script>(function () {
+    var el = document.getElementById('intro'), seen = false;
+    try { seen = localStorage.getItem('rtg.intro') === '1'; } catch (e) {}
+    if (seen || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { el.remove(); return; }
+    try { localStorage.setItem('rtg.intro', '1'); } catch (e) {}
+    function done() { if (!el.parentNode || el.classList.contains('out')) return; el.classList.add('out'); setTimeout(function () { el.remove(); }, 450); }
+    el.addEventListener('click', done);
+    setTimeout(done, 3300);
+  })();</script>
   <div id="demo-banner" class="demo-banner hidden">Demo mode: sample data stored only in this browser. Logins: <b>admin / admin123</b>, <b>fm01 / fm12345</b>, <b>hod / hod12345</b>, <b>rchief</b> or <b>fchief / chief123</b>, <b>vendor / vendor123</b>.</div>
   <header id="topbar" class="topbar hidden">
     <a class="brand" href="#/home"><span class="brand-mark"><svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><marker id="ah" viewBox="0 0 10 10" refX="3" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#2fb3a0"/></marker><filter id="gl" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="1.4"/></filter></defs><rect width="64" height="64" rx="14" fill="#0f1f3d"/><g fill="none" stroke="#2fb3a0" stroke-width="2.4" stroke-linecap="round" marker-end="url(#ah)"><path d="M10.6 26A22 22 0 0 1 52.9 25"/><path d="M53.4 38A22 22 0 0 1 11.1 39"/></g><rect x="13" y="13" width="38" height="10" rx="2.5" fill="#3b4a66"/><rect x="13" y="41" width="38" height="10" rx="2.5" fill="#3b4a66"/><path d="M17 16.5H47M17 19.5H47M17 44.5H47M17 47.5H47" stroke="#ff7a3d" stroke-width="1.8" stroke-linecap="round"/><path d="M0 26H36V30H32V34H28V38H0Z" fill="#5b7aa6"/><path d="M64 26H36V30H32V34H28V38H64Z" fill="#cdd5e0"/><path d="M0 30H32M0 34H28" stroke="#47638e"/><path d="M36 30H64M32 34H64" stroke="#aab5c4"/><path d="M36 26V30H32V34H28V38" fill="none" stroke="#ff7a3d" stroke-width="3" stroke-linejoin="round" filter="url(#gl)"/><path d="M36 26V30H32V34H28V38" fill="none" stroke="#ff8a50" stroke-width="2" stroke-linejoin="round"/></svg></span><span>RTG Heater Management</span></a>
