@@ -134,6 +134,17 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   await both('listUsers', {}, 'admin');
   await both('getRequest', { no: 'HEATER_0001' }, 'admin');
 
+  // Settings page: lists edited in the app, and the logs read straight from Postgres.
+  await both('masterSave', { tab: 'Settings', rows: [{ Key: 'OverdueTo', Value: 'a@x.com' }] }, 'admin');
+  await both('masterSave', { tab: 'Conveyors', rows: [{ ConveyorName: 'CNV-900', BeltWidth_mm: '1400' }, { ConveyorName: 'SAMPLE CNV-101', Area: 'RM' }] }, 'admin');
+  await both('masterDelete', { tab: 'Departments', key: 'RTG' }, 'admin');
+  await both('masterList', { tab: 'Conveyors' }, 'admin');
+  await both('masterList', { tab: 'Settings' }, 'admin');
+  await both('lookups', {}, 'fm');
+  await both('adminLog', { log: 'AuditLog' }, 'admin', (r) => assert.strictEqual(r.data.rows[0].Action, 'deleteFromList'));
+  await both('adminLog', { log: 'MailOutbox' }, 'admin', (r) => assert.ok(r.data.rows.length > 3));
+  await both('adminLog', { log: 'AuditLog' }, 'fm', (r) => assert.match(r.error, /permission/));
+
   // Same mail, in the same order, waits in the outbox for the Apps Script relay.
   const sheetMails = s.ctx.__mails;
   const pending = (await relay('relayMail')).data;
