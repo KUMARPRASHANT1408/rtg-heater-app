@@ -200,3 +200,18 @@ test('a newer app version adds its new columns by itself', { skip: !PGlite && 'n
   assert.ok(exp.tabs.Components[0].includes('Remarks'));
   await pg.close();
 });
+
+test('a new copy of the function does not run the table setup again (it deadlocked running requests)', { skip: !PGlite && 'npm install first (PGlite)' }, async () => {
+  const { makeServer } = await import('../supabase/functions/rtg/core.mjs');
+  const pg = new PGlite();
+  let ddl = 0;
+  const db = {
+    run: (sql) => { ddl++; return pg.exec(sql); },
+    tx: (fn) => pg.transaction((tx) => fn(async (sql, params) => (await tx.query(sql, params || [])).rows))
+  };
+  await makeServer({ db }).init();
+  await makeServer({ db }).init();
+  await makeServer({ db }).handle({ action: 'me', token: 'x' });
+  assert.strictEqual(ddl, 1);
+  await pg.close();
+});
