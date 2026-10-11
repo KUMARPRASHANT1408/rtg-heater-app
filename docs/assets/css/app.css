@@ -278,3 +278,31 @@ svg.splice .seg:hover { fill-opacity: 1 !important; }
 .calc-steps li.now { color: var(--text); background: var(--brand-soft); border-radius: 6px; padding: 2px 6px; margin-left: -6px; }
 @media print { #sim-form, .sim-bar { display: none !important; } }
 @media (max-width: 600px) { svg.splice text { font-size: 22px; } }
+
+/* First-open intro (index.html #intro). Transforms and opacity only, so the phone's GPU does the work. */
+.intro { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; gap: 6px; overflow: hidden; cursor: pointer;
+  background: radial-gradient(circle at 50% 42%, #24467d 0%, #13254a 45%, #0a1428 100%); color: #fff; transition: opacity .45s ease; }
+.intro.out { opacity: 0; pointer-events: none; }
+.intro::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(260px 260px at 50% 42%, rgba(255, 122, 61, .35), transparent 70%); opacity: 0; animation: i-flash 1.6s ease-out 1.25s forwards; }
+.intro-logo { width: min(60vw, 300px); height: auto; overflow: visible; }
+.intro-logo g { transform-box: view-box; }
+.i-left { animation: i-left .7s cubic-bezier(.2, .8, .2, 1) .15s both; }
+.i-right { animation: i-right .7s cubic-bezier(.2, .8, .2, 1) .15s both; }
+.i-top { animation: i-top .45s cubic-bezier(.3, 1.4, .5, 1) .85s both; }
+.i-bot { animation: i-bot .45s cubic-bezier(.3, 1.4, .5, 1) .85s both; }
+.i-hot { animation: i-hot .5s ease-in 1.2s both; }
+.i-joint { animation: i-fade .35s ease-out 1.35s both; }
+.i-ring { transform-origin: 32px 32px; animation: i-ring-in .5s ease-out 1.5s both, i-spin 2.2s linear 1.5s infinite; }
+.intro-title { font-weight: 700; font-size: clamp(1.25rem, 5vw, 1.7rem); letter-spacing: .3px; margin-top: 22px; animation: i-rise .5s ease-out 1.85s both; }
+.intro-sub { color: #9fb6d9; font-size: .9rem; letter-spacing: 3px; text-transform: uppercase; animation: i-rise .5s ease-out 2.05s both; }
+@keyframes i-left { from { transform: translateX(-140px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes i-right { from { transform: translateX(140px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes i-top { from { transform: translateY(-60px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes i-bot { from { transform: translateY(60px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes i-hot { from { stroke: #6b7a94; } to { stroke: #ff7a3d; } }
+@keyframes i-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes i-ring-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes i-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes i-flash { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: .35; } }
+@keyframes i-rise { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
