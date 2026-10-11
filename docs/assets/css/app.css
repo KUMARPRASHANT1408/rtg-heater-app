@@ -21,6 +21,7 @@
   --series-muted: #c3c9d4;
   --shadow: 0 1px 2px rgba(15, 27, 45, .06), 0 4px 16px rgba(15, 27, 45, .06);
   --radius: 14px;
+  --topbar: #1f3a68;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -31,6 +32,7 @@
     --good: #5fd38d; --good-soft: #15301f; --warn: #f2c14e; --warn-soft: #33290f; --bad: #ff8a80; --bad-soft: #3a1918;
     --series-1: #3987e5; --series-2: #d95926; --series-muted: #4a5568;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+    --topbar: #14223d;
   }
 }
 :root[data-theme="dark"] {
@@ -41,6 +43,7 @@
   --good: #5fd38d; --good-soft: #15301f; --warn: #f2c14e; --warn-soft: #33290f; --bad: #ff8a80; --bad-soft: #3a1918;
   --series-1: #3987e5; --series-2: #d95926; --series-muted: #4a5568;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  --topbar: #14223d;
 }
 
 * { box-sizing: border-box; }
@@ -64,7 +67,7 @@ h2 { font-size: 1.15rem; }
   position: sticky; top: 0; z-index: 10;
   display: flex; align-items: center; gap: 16px;
   padding: 10px 24px;
-  background: #1f3a68; color: #fff;
+  background: var(--topbar); color: #fff;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; text-decoration: none; color: #fff; }
 .brand-mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; box-shadow: 0 0 0 1px rgba(255, 255, 255, .22); flex: none; }
@@ -77,6 +80,9 @@ h2 { font-size: 1.15rem; }
 .who .role { background: rgba(255, 255, 255, .16); padding: 2px 8px; border-radius: 99px; font-size: .78rem; }
 .icon-btn { background: transparent; border: 1px solid rgba(255, 255, 255, .25); color: #fff; border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: .85rem; }
 .icon-btn:hover { background: rgba(255, 255, 255, .1); }
+.theme-btn { display: inline-flex; align-items: center; gap: 6px; }
+.theme-btn svg { width: 16px; height: 16px; flex: none; }
+@media (max-width: 720px) { .theme-btn span { display: none; } }
 
 main { max-width: 1200px; margin: 0 auto; padding: 28px 24px 64px; }
 body.is-login main { max-width: none; padding: 0; }
@@ -174,7 +180,7 @@ details summary { cursor: pointer; color: var(--brand-2); font-size: .9rem; }
 .alert.info { background: var(--brand-soft); color: var(--text); }
 .demo-banner { background: var(--warn-soft); color: var(--warn); text-align: center; font-size: .85rem; padding: 6px 12px; }
 
-.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #0f1b2d; color: #fff; padding: 10px 18px; border-radius: 10px; box-shadow: var(--shadow); z-index: 50; font-size: .92rem; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 10px 18px; border-radius: 10px; box-shadow: var(--shadow); z-index: 50; font-size: .92rem; }
 
 dialog { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); padding: 24px; width: min(560px, calc(100vw - 32px)); box-shadow: var(--shadow); }
 dialog::backdrop { background: rgba(10, 16, 28, .45); }
