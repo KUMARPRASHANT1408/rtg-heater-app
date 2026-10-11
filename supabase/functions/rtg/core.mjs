@@ -7,6 +7,7 @@ import { GasFake, makeBackend } from './backend.mjs';
 
 // Tabs the app only ever adds to. They are never loaded (they grow forever); new rows are just inserted.
 const APPEND_ONLY = ['AuditLog', 'MailOutbox'];
+const TABLES = 6; // tables in the DDL below
 const WRITE_LOCK = 7151; // pg_advisory_xact_lock key: one writer at a time, like Apps Script's LockService
 const IST_MS = 330 * 60000;
 const DB_LIMIT = 500 * 1024 * 1024; // Supabase free plan
@@ -84,8 +85,27 @@ export function makeServer(opts) {
   var ddlDone = false, schemaChecked = false;
   var READ_ONLY = makeBackend.apply(null, GasFake.NAMES.map(function () { return {}; })).READ_ONLY;
 
+  // Supabase starts many copies of the function. The tables are made once; after that a new copy must not run the
+  // DDL again, because ALTER TABLE locks each table and deadlocks with requests already running.
   async function init() {
-    if (!ddlDone) { await db.run(DDL); ddlDone = true; }
+    if (ddlDone) return;
+    var have = await tx(function (q) { return q("select count(*)::int as n from pg_tables where schemaname = 'rtg'"); });
+    if (have[0].n < TABLES) await db.run(DDL);
+    ddlDone = true;
+  }
+
+  // A transaction that Postgres cancelled to break a deadlock, or a serialization clash, changed nothing: try again.
+  async function tx(fn) {
+    for (var attempt = 1; ; attempt++) {
+      try {
+        return await db.tx(fn);
+      } catch (err) {
+        var code = err && (err.code || (err.cause && err.cause.code));
+        if (attempt >= 4 || (code !== '40P01' && code !== '40001')) throw err;
+        log('retrying after ' + code);
+        await new Promise(function (r) { setTimeout(r, 20 * attempt + Math.random() * 40); });
+      }
+    }
   }
 
   // ---------- load the tabs into an in-memory Sheet ----------
@@ -218,7 +238,7 @@ export function makeServer(opts) {
   // Runs fn(api, ctx) against freshly loaded tabs and saves the result. write = take the lock and save the tabs.
   async function run(write, fn, after) {
     await init();
-    return db.tx(async function (q) {
+    return tx(async function (q) {
       var lock = write || !schemaChecked;
       if (lock) await q('select pg_advisory_xact_lock(' + WRITE_LOCK + ')');
       var preFiles = {};
@@ -280,7 +300,7 @@ export function makeServer(opts) {
     await init();
     var d = req.data || {};
     if (action === 'relayRegister') {
-      return db.tx(async function (q) {
+      return tx(async function (q) {
         await q('select pg_advisory_xact_lock(' + WRITE_LOCK + ')');
         var have = await q("select value from rtg.meta where key = 'relay_key'");
         var hash = sha256Hex(req.key || '');
@@ -290,24 +310,24 @@ export function makeServer(opts) {
         return { ok: true, data: { connected: true } };
       });
     }
-    var key = await db.tx(function (q) { return q("select value from rtg.meta where key = 'relay_key'"); });
+    var key = await tx(function (q) { return q("select value from rtg.meta where key = 'relay_key'"); });
     if (!key.length || key[0].value !== sha256Hex(req.key || '')) return { ok: false, error: 'Relay key not accepted.' };
 
     if (action === 'relayImport') return importTabs(d);
     if (action === 'relayFile') {
-      return db.tx(async function (q) {
+      return tx(async function (q) {
         await files.put(q, { id: String(d.id), type: String(d.type || 'application/octet-stream'), b64: String(d.b64 || '') });
         return { ok: true, data: { id: d.id } };
       });
     }
     if (action === 'relayMail') {
-      return db.tx(async function (q) {
+      return tx(async function (q) {
         var rows = await q('select id::text as rid, mail from rtg.mail where sent is null order by id limit 40');
         return { ok: true, data: rows.map(function (r) { return { id: r.rid, mail: r.mail }; }) };
       });
     }
     if (action === 'relayMailDone') {
-      return db.tx(async function (q) {
+      return tx(async function (q) {
         await q('update rtg.mail set sent = now() where id in (select jsonb_array_elements_text($1::text::jsonb)::bigint)', [JSON.stringify(d.ids || [])]);
         await q("delete from rtg.mail where sent < now() - interval '30 days'");
         await q('delete from rtg.cache where expires < now()');
@@ -321,7 +341,7 @@ export function makeServer(opts) {
       return run(true, function (api) { return { ok: true, data: { message: api.resetAdminPassword() } }; });
     }
     if (action === 'relayExport') {
-      return db.tx(async function (q) {
+      return tx(async function (q) {
         var tabs = await q('select tab, header from rtg.tabs order by pos');
         var rows = await q('select tab, data from rtg.rows order by tab, id');
         var out = {};
@@ -337,7 +357,7 @@ export function makeServer(opts) {
   async function importTabs(d) {
     var order = d.order || Object.keys(d.tabs || {});
     if (!order.length) return { ok: false, error: 'No tabs sent.' };
-    var done = await db.tx(async function (q) {
+    var done = await tx(async function (q) {
       await q('select pg_advisory_xact_lock(' + WRITE_LOCK + ')');
       var have = await q('select count(*)::int as n from rtg.tabs');
       if (have[0].n && !d.replace) return { ok: false, error: 'Data was already copied. Use copyDataAgain() to replace it (only before going live).' };
