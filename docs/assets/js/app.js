@@ -1859,6 +1859,36 @@
     }).catch(function (err) { showError($('#pw-error'), err); });
   });
 
+  // ---------- light / dark theme ----------
+  // Follows the phone or computer setting until the user picks one; the choice is remembered on this device.
+  var darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+  function isDark() {
+    var t = document.documentElement.getAttribute('data-theme');
+    return t ? t === 'dark' : !!(darkQuery && darkQuery.matches);
+  }
+  function themeChanged() {
+    var dark = isDark();
+    $('#btn-theme').innerHTML = dark
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span>Light</span>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span>Dark</span>';
+    $('#btn-theme').title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+    $('#btn-theme').setAttribute('aria-label', $('#btn-theme').title);
+    var meta = document.querySelector('meta[name=theme-color]');
+    if (meta) meta.setAttribute('content', cssVar('--topbar'));
+    // Charts read their colours when drawn, so draw the page again.
+    if (state.user && view.querySelector('canvas')) route();
+  }
+  $('#btn-theme').addEventListener('click', function () {
+    var next = isDark() ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('rtg.theme', next); } catch (e) {}
+    themeChanged();
+  });
+  if (darkQuery && darkQuery.addEventListener) darkQuery.addEventListener('change', function () {
+    if (!document.documentElement.getAttribute('data-theme')) themeChanged();
+  });
+  themeChanged();
+
   $('#btn-logout').addEventListener('click', function () {
     API.logout();
     state.user = null;
