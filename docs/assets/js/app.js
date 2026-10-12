@@ -1900,14 +1900,22 @@
 
   function renderMasterList(box, d) {
     var noun = d.tab === 'Conveyors' ? 'conveyor' : 'department';
-    box.innerHTML = '<div class="actions" style="justify-content:flex-start;margin:0 0 12px">' +
+    // Conveyors: show which heaters the guide gives for each belt, and flag belts with none.
+    var hz = d.heaters, missing = hz ? d.rows.filter(function (r) { return !(hz[r.ConveyorName] || []).length; }) : [];
+    box.innerHTML = (hz ? (missing.length
+      ? '<div class="alert error" style="margin-bottom:12px"><b>' + missing.length + ' conveyor' + (missing.length === 1 ? ' has' : 's have') + ' no suitable heater</b> in the heater guide for their width and rating. ' +
+        '<button class="btn small secondary" type="button" id="m-missing">Show only these</button></div>'
+      : '<div class="alert info" style="margin-bottom:12px">Every conveyor has at least one suitable heater in the heater guide.</div>') : '') +
+      '<div class="actions" style="justify-content:flex-start;margin:0 0 12px">' +
       '<button class="btn" type="button" id="m-add">+ Add ' + noun + '</button>' +
       (d.tab === 'Conveyors' ? '<button class="btn secondary" type="button" id="m-upload">Upload CSV</button><button class="btn secondary" type="button" id="m-template">Download template</button>' : '') +
-      '</div><div class="table-wrap"><table><thead><tr>' + d.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '<th></th></tr></thead><tbody>' +
+      '</div><div class="table-wrap"><table><thead><tr>' + d.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + (hz ? '<th>Suitable heaters</th>' : '') + '<th></th></tr></thead><tbody>' +
       (d.rows.map(function (r, i) {
-        return '<tr>' + d.columns.map(function (c, j) { return '<td>' + (j === 0 ? '<b>' + esc(r[c]) + '</b>' : esc(r[c])) + '</td>'; }).join('') +
+        var ids = hz && (hz[r.ConveyorName] || []);
+        return '<tr' + (ids && ids.length ? ' data-ok' : '') + '>' + d.columns.map(function (c, j) { return '<td>' + (j === 0 ? '<b>' + esc(r[c]) + '</b>' : esc(r[c])) + '</td>'; }).join('') +
+          (hz ? '<td class="small">' + (ids.length ? esc(ids.join(', ')) : '<span class="pill bad">None</span>') + '</td>' : '') +
           '<td style="white-space:nowrap"><button class="btn secondary small" type="button" data-medit="' + i + '">Edit</button> <button class="btn danger small" type="button" data-mdel="' + i + '">Delete</button></td></tr>';
-      }).join('') || '<tr><td colspan="' + (d.columns.length + 1) + '" class="muted">None yet.</td></tr>') + '</tbody></table></div>' +
+      }).join('') || '<tr><td colspan="' + (d.columns.length + 2) + '" class="muted">None yet.</td></tr>') + '</tbody></table></div>' +
       '<p class="muted small">' + d.rows.length + ' ' + noun + (d.rows.length === 1 ? '' : 's') + '.</p>';
     function reload() {
       renderAdmin('', { t: d.tab });
@@ -1926,6 +1934,11 @@
       });
     }
     $('#m-add', box).addEventListener('click', function () { edit(null); });
+    if ($('#m-missing', box)) $('#m-missing', box).addEventListener('click', function () {
+      var only = this.textContent === 'Show only these';
+      box.querySelectorAll('tr[data-ok]').forEach(function (tr) { tr.style.display = only ? 'none' : ''; });
+      this.textContent = only ? 'Show all conveyors' : 'Show only these';
+    });
     box.addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
