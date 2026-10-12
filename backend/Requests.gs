@@ -414,7 +414,7 @@ function dashboard(user) {
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
-    maintenanceDue: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
+    maintenanceDue: !(store || canMaintain_(user)) ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
     missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
     transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
     transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length,

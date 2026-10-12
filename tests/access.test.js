@@ -15,7 +15,7 @@ function app() {
     const pw = ok('saveUser', { UserID: id, Name: id.toUpperCase(), Role: role || 'Local', Team: team, Email: id + '@company.com' }, admin).tempPassword;
     return ok('login', { userId: id, password: pw }).token;
   };
-  const t = { admin, fm: user('fm01', 'FM'), vendor: user('jv01', 'Vendor'), rtg: user('rtg01', 'RTG') };
+  const t = { admin, fm: user('fm01', 'FM'), vendor: user('jv01', 'Vendor'), rtg: user('rtg01', 'RTG'), rv: user('rv01', 'RTG Vendor') };
   const notes = () => ctx.__mails.filter((m) => m.subject.startsWith('[RTG-NOTIFY]')).map((m) => JSON.parse(m.body));
   return { ctx, call, ok, t, notes };
 }
@@ -48,7 +48,7 @@ test('only the RTG team sees and changes the stock', () => {
   const dash = call('dashboard', {}, t.vendor).data;
   assert.strictEqual(dash.consumableAlerts, 0);
   assert.strictEqual(dash.maintenanceDue, 0);
-  assert.match(call('saveUser', { UserID: 'x1', Name: 'X', Role: 'Local', Team: 'RTG Vendor' }, t.admin).error, /Unknown team/);
+  assert.match(call('saveUser', { UserID: 'x1', Name: 'X', Role: 'Local', Team: 'Store' }, t.admin).error, /Unknown team/);
 });
 
 test('FM gives the belt details; the RTG team chooses the heater and issues it', () => {
@@ -104,5 +104,27 @@ test('maintenance is logged and checked by the RTG team', () => {
   assert.match(call('logMaintenance', { ComponentIDs: [part.ComponentID], WorkDone: 'Cleaned', file }, t.vendor).error, /permission/);
   const { LogNo } = ok('logMaintenance', { ComponentIDs: [part.ComponentID], WorkDone: 'Cleaned', file }, t.rtg);
   assert.match(call('verifyMaintenance', { LogNo, decision: 'approve' }, t.fm).error, /permission/);
+  ok('verifyMaintenance', { LogNo, decision: 'approve' }, t.rtg);
+});
+
+test('RTG Vendor only logs heater maintenance; RTG, RTG Vendor and admins see the logs', () => {
+  const { call, ok, t } = app();
+  const file = { name: 'c.jpg', type: 'image/jpeg', data: Buffer.from('fake jpeg').toString('base64') };
+  const part = ok('maintenanceDue', {}, t.rv)[0];
+  const { LogNo } = ok('logMaintenance', { ComponentIDs: [part.ComponentID], WorkDone: 'Cleaned', file }, t.rv);
+  ['rv', 'rtg', 'admin'].forEach((who) => {
+    assert.strictEqual(ok('listMaintenanceLogs', {}, t[who])[0].LogNo, LogNo, who + ' sees the log');
+    assert.ok(ok('getChecklist', { LogNo }, t[who]).data, who + ' opens the checklist');
+  });
+  assert.match(call('listMaintenanceLogs', {}, t.fm).error, /permission/);
+  assert.match(call('listMaintenanceLogs', {}, t.vendor).error, /permission/);
+  assert.match(call('verifyMaintenance', { LogNo, decision: 'approve' }, t.rv).error, /permission/);
+  // Nothing else: no stock, no approvals, no issue, no stock changes.
+  [['heaterSearch', { width: 1200, rating: 1250 }], ['components', {}], ['listConsumables', {}],
+   ['stockEntry', { ItemID: 'C02', Type: 'Receipt', Qty: 1, BatchNo: 'X', ExpiryDate: '2099-12-31' }],
+   ['maintenance', { ComponentIDs: [part.ComponentID] }], ['listUsers', {}]].forEach(([a, d]) => {
+    assert.match(call(a, d, t.rv).error, /permission/, a);
+  });
+  assert.strictEqual(typeof ok('dashboard', {}, t.rv).maintenanceDue, 'number');
   ok('verifyMaintenance', { LogNo, decision: 'approve' }, t.rtg);
 });

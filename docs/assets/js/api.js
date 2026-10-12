@@ -107,7 +107,7 @@
   // ---------- Demo backend ----------
   // Runs the real Apps Script backend code in this browser against fake Sheet services,
   // with the data kept in localStorage. Nothing leaves the browser.
-  var DEMO_KEY = 'rtg.demo.v8';
+  var DEMO_KEY = 'rtg.demo.v9';
   var backend = null;
 
   function demoBackend() {
@@ -123,6 +123,7 @@
       addDemoUser('rchief', 'chief123', { Name: 'Demo RTG Chief', EmployeeID: '100003', Role: 'RTG Chief', Team: 'RTG', Email: 'rchief@example.com' });
       addDemoUser('fchief', 'chief123', { Name: 'Demo FM Chief', EmployeeID: '200002', Role: 'FM Chief', Team: 'FM', Email: 'fchief@example.com' });
       addDemoUser('rtg01', 'rtg12345', { Name: 'Demo RTG Team', EmployeeID: '100004', Role: 'Local', Team: 'RTG', Email: 'rtg01@example.com' });
+      addDemoUser('rvendor', 'vendor123', { Name: 'Demo RTG Vendor', EmployeeID: 'V9001', Role: 'Local', Team: 'RTG Vendor', Department: 'ABC Heater Services', Email: 'rvendor@example.com' });
       addDemoUser('vendor', 'vendor123', { Name: 'Demo Jointing Vendor', EmployeeID: 'V9002', Role: 'Local', Team: 'Vendor', Department: 'ABC Belting', Email: 'vendor@example.com' });
       // One set back from a joint, so the maintenance page has work to show.
       ['TP', 'BP', 'CP', 'PB', 'PC1', 'PC2', 'T1', 'T2', 'SB1', 'SB2', 'CBS'].forEach(function (c) {

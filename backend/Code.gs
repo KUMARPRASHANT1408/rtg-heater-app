@@ -9,6 +9,8 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
 function RTG(u) { return isRtgTeam_(u); }
+// MAINT: the RTG team and the RTG Vendor (heater maintenance only).
+function MAINT_(u) { return canMaintain_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
   changePassword: { roles: null,  run: function (u, d) { return changePassword(u, d.oldPassword, d.newPassword); } },
@@ -46,8 +48,8 @@ var ACTIONS = {
   issueConsumable:          { allow: RTG,   run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
-  listMaintenanceLogs:      { allow: RTG,   run: function (u) { return listMaintenanceLogs(u); } },
-  getChecklist:             { allow: RTG,   run: function (u, d) { return getChecklist(u, d); } },
+  listMaintenanceLogs:      { allow: MAINT_, run: function (u) { return listMaintenanceLogs(u); } },
+  getChecklist:             { allow: MAINT_, run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },

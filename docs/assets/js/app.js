@@ -16,6 +16,8 @@
   // approvals, issue and return, maintenance. Admins also get the admin pages.
   function team() { return (state.user && state.user.Team) || ''; }
   function isRtgTeam() { return isAdmin() || team() === 'RTG'; }
+  // RTG Vendor: the store's maintenance contractor; logs heater maintenance only.
+  function canMaintain() { return isRtgTeam() || team() === 'RTG Vendor'; }
   function toast(msg) {
     var t = document.createElement('div');
     t.className = 'toast'; t.textContent = msg;
@@ -59,9 +61,10 @@
   // Pages for people outside the store. The RTG team has every page but the admin ones.
   var FM_PAGES = ['#/home', '#/heaters', '#/requests', '#/request', '#/ticket', '#/transfers'];
   var VENDOR_PAGES = ['#/home', '#/consumables'];
+  var MAINT_PAGES = ['#/home', '#/maintenance'];
   function allowedPage(hash) {
     if (isRtgTeam()) return ADMIN_ROUTES.indexOf(hash) < 0 || isAdmin();
-    return (team() === 'Vendor' ? VENDOR_PAGES : FM_PAGES).indexOf(hash) >= 0;
+    return (team() === 'Vendor' ? VENDOR_PAGES : team() === 'RTG Vendor' ? MAINT_PAGES : FM_PAGES).indexOf(hash) >= 0;
   }
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
@@ -158,8 +161,10 @@
       isRtgTeam() ? { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
         : { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Ask the RTG Store for jointing material and follow your requests.' }
     ];
-    if (isRtgTeam()) {
+    if (canMaintain()) {
       tiles.splice(3, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
+    }
+    if (isRtgTeam()) {
       tiles.splice(1, 0, { href: '#/inventory', ico: 'inventory', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
     }
     tiles.push({ href: '#/calculator', ico: 'calculator', title: 'Joint calculator', text: 'Step length, joint length, platen size, pressure and cure time from the belt details.' });
@@ -183,7 +188,9 @@
         return '<a class="card stat tile" href="#/requests?f=' + f + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
       }
       var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
-      var heaterStats = team() === 'Vendor' ? '' : t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
+      var heaterStats = team() === 'RTG Vendor' ? '<a class="card stat tile" href="#/maintenance?f=log"><div class="label">Parts due after a joint</div><div class="value" style="color:var(--warn)">' + d.maintenanceDue + '</div></a>' +
+        '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Logs waiting for RTG check</div><div class="value">' + d.maintenanceToVerify + '</div></a>'
+        : team() === 'Vendor' ? '' : t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
         t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
       box.innerHTML = mine + heaterStats +
         (d.maintenanceToVerify && isRtgTeam() ? '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Maintenance logs to check</div><div class="value" style="color:var(--warn)">' + d.maintenanceToVerify + '</div></a>' : '') +
@@ -1601,7 +1608,7 @@
   }
 
   function renderMaintenance(arg, params) {
-    if (!isRtgTeam()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team.</p></div>'; return; }
+    if (!canMaintain()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and RTG Vendor.</p></div>'; return; }
     var show = params.f || (!isAdmin() ? 'log' : 'verify');
     view.innerHTML = '<div class="page-head"><div><h1>Heater maintenance</h1></div></div><p class="muted">Loading…</p>';
     Promise.all([API.call('maintenanceDue'), API.call('listMaintenanceLogs')]).then(function (res) {
@@ -1666,7 +1673,7 @@
             '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + '</span>'; }).join('') + '</div>' +
             (l.RTGRemark ? '<p class="small"><b>RTG:</b> ' + esc(l.RTGRemark) + (l.VerifiedBy ? ' <span class="muted">(' + esc(l.VerifiedBy) + ', ' + esc(l.VerifiedOn) + ')</span>' : '') + '</p>' : '') +
             '<div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" data-checklist="' + esc(l.LogNo) + '">View checklist</button>' +
-            (l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
+            (isRtgTeam() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
             '</div></div>';
         }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
       }
