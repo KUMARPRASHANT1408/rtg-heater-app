@@ -135,7 +135,21 @@ export function makeServer(opts) {
                 ttl: {}, mails: [], newFiles: [], needFile: null, truncate: [], ready: tabs.length > 0 };
     ctx.services = services(ctx, preFiles || {});
     ctx.api = makeBackend.apply(null, GasFake.NAMES.map(function (n) { return ctx.services[n]; }));
+    addNewColumns(state.sheets, ctx.api.SCHEMA);
     return ctx;
+  }
+
+  // A column added to the schema after the data was copied here goes on the end, as setup() does on the Sheet.
+  // It is saved with the next write.
+  function addNewColumns(sheets, schema) {
+    Object.keys(schema).forEach(function (tab) {
+      var data = sheets[tab];
+      if (!data || !data[0]) return;
+      var head = data[0], before = head.length;
+      schema[tab].forEach(function (c) { if (head.indexOf(c) < 0) head.push(c); });
+      if (head.length === before) return;
+      for (var r = 1; r < data.length; r++) while (data[r].length < head.length) data[r].push('');
+    });
   }
 
   function services(ctx, preFiles) {

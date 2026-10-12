@@ -75,7 +75,7 @@ test('full lifecycle: approve, issue by component, partial return with issue, ov
   assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: [{ ComponentID: 'HM-01-S3-PB' }] }, admin).error, /different heater/);
   ok('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, admin);
   assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks }, admin).error, /already issued/);
-  const s1 = ok('heaterSearch', { width: 1200, rating: 1250 }, fm);
+  const s1 = ok('heaterSearch', { width: 1200, rating: 1250 }, admin);
   assert.strictEqual(s1.totals.suitableAvailable, 3);
   assert.strictEqual(s1.totals.suitableDeployed, 1);
   assert.deepStrictEqual(s1.deployments.map((d) => d.conveyor), ['SAMPLE CNV-205']);
@@ -117,17 +117,17 @@ test('full lifecycle: approve, issue by component, partial return with issue, ov
   const due = comps.filter((c) => c.MaintenanceStatus === 'Due');
   assert.strictEqual(due.length, 10);
   assert.ok(comps.some((c) => c.Status === 'Missing'));
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 3);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 3);
   const dueOk = due.filter((c) => c.Condition === 'OK').map((c) => c.ComponentID);
   ok('maintenance', { ComponentIDs: dueOk }, admin);
   // Still 3: the set's pressure bag is damaged and a thermocouple is missing.
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 3);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 3);
   const bag = due.find((c) => c.Condition === 'Damaged').ComponentID;
   ok('maintenance', { ComponentIDs: [bag], repaired: true }, admin);
   const tc = comps.find((c) => c.Status === 'Missing').ComponentID;
   ok('markFound', { ComponentID: tc }, admin);
   ok('maintenance', { ComponentIDs: [tc] }, admin);
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 4);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 4);
 
   const dash = ok('dashboard', {}, admin);
   assert.deepStrictEqual([dash.pending, dash.awaiting, dash.onSite, dash.overdue, dash.openIssues], [0, 0, 0, 0, 0]);

@@ -44,22 +44,32 @@ function itemsTable_(items) {
 }
 
 // ---------- request ----------
+// FM gives the belt details (and the heater number if they know it); the RTG team chooses the heater when approving.
+// The store may also name the heater and parts straight away (ModelID + RequestedComponents).
 function raiseRequest(user, d) {
-  required_(d, [['ModelID', 'Heater'], ['ConveyorName', 'Conveyor name'], ['VendorTeam', 'Vendor team name'], ['VendorSupervisor', 'Vendor supervisor name'],
+  required_(d, [['ConveyorName', 'Conveyor name'], ['VendorTeam', 'Vendor team name'], ['VendorSupervisor', 'Vendor supervisor name'],
                 ['VendorEmployeeID', 'Vendor employee ID'], ['FMRepresentative', 'FM representative'], ['IssueDate', 'Date of issue'], ['ExpectedReturnDate', 'Expected return date']]);
   if (String(d.ExpectedReturnDate) < String(d.IssueDate)) throw new Error('Expected return date cannot be before the issue date.');
-  var model = findOne('HeaterModels', 'ModelID', d.ModelID);
-  if (!model) throw new Error('Unknown heater model.');
-  var types = readTable('ComponentTypes').filter(function (t) { return t.ModelID === d.ModelID; });
-  var names = types.map(function (t) { return t.ComponentName; });
-  var comps = parseList_(d.RequestedComponents).filter(function (c) { return Number(c.qty) > 0; });
-  if (!comps.length) throw new Error('Choose at least one component.');
-  comps.forEach(function (c) { if (names.indexOf(c.name) < 0) throw new Error('"' + c.name + '" is not part of this heater.'); });
+  var model = null, comps = [];
+  if (d.ModelID) {
+    model = findOne('HeaterModels', 'ModelID', d.ModelID);
+    if (!model) throw new Error('Unknown heater model.');
+    var names = readTable('ComponentTypes').filter(function (t) { return t.ModelID === d.ModelID; }).map(function (t) { return t.ComponentName; });
+    comps = parseList_(d.RequestedComponents).filter(function (c) { return Number(c.qty) > 0; });
+    if (!comps.length) throw new Error('Choose at least one component.');
+    comps.forEach(function (c) { if (names.indexOf(c.name) < 0) throw new Error('"' + c.name + '" is not part of this heater.'); });
+  } else {
+    required_(d, [['BeltWidth_mm', 'Belt width'], ['BeltRating_Nmm', 'Belt rating']]);
+    if (!(Number(d.BeltWidth_mm) > 0)) throw new Error('Belt width must be a number in mm.');
+    if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) throw new Error('Type the belt rating as a number like 1000, or ST1000 for a steel-cord belt.');
+    if (d.Plies !== undefined && d.Plies !== '' && !(Number(d.Plies) > 0)) throw new Error('Plies must be a number.');
+  }
 
   var no = nextNumber('request', 'RTGH');
   var row = {
-    RequestNo: no, RaisedBy: user.UserID, RaisedOn: new Date(), ModelID: d.ModelID, ConveyorName: d.ConveyorName,
-    BeltWidth_mm: d.BeltWidth_mm || '', BeltRating_Nmm: d.BeltRating_Nmm || '', VendorTeam: d.VendorTeam, VendorSupervisor: d.VendorSupervisor,
+    RequestNo: no, RaisedBy: user.UserID, RaisedOn: new Date(), ModelID: model ? model.ModelID : '', ConveyorName: d.ConveyorName,
+    BeltWidth_mm: d.BeltWidth_mm || '', BeltRating_Nmm: String(d.BeltRating_Nmm || '').replace(/\s+/g, '').toUpperCase(), Plies: d.Plies || '',
+    HeaterAsked: String(d.HeaterAsked || '').trim(), VendorTeam: d.VendorTeam, VendorSupervisor: d.VendorSupervisor,
     VendorEmployeeID: d.VendorEmployeeID, FMRepresentative: d.FMRepresentative, FMEmail: d.FMEmail || '', IssueDate: d.IssueDate,
     ExpectedReturnDate: d.ExpectedReturnDate, RequestedComponents: JSON.stringify(comps.map(function (c) { return { name: c.name, qty: Number(c.qty) }; })),
     Status: REQ.PENDING
@@ -67,10 +77,23 @@ function raiseRequest(user, d) {
   appendRow('Requests', row);
   audit(user.UserID, 'raiseRequest', no);
   queueMail('NEW_REQUEST', no, getSetting('RTGTeamMail', ''), '', 'New heater request ' + no,
-    mailHtml_('New heater request ' + no, [['Heater', model.ModelName], ['Conveyor', d.ConveyorName], ['Vendor team', d.VendorTeam],
+    mailHtml_('New heater request ' + no, [['Heater', model ? model.ModelName : (row.HeaterAsked ? row.HeaterAsked + ' (asked by FM)' : 'To be chosen by RTG')],
+      ['Belt', beltText_(row)], ['Conveyor', d.ConveyorName], ['Vendor team', d.VendorTeam],
       ['FM representative', d.FMRepresentative], ['Issue date', d.IssueDate], ['Expected return', d.ExpectedReturnDate], ['Raised by', user.Name]],
-      'Please approve or reject it in the app.'));
+      model ? 'Please approve or reject it in the app.' : 'Please choose a heater for this belt and approve, or reject it, in the app.'));
   return { RequestNo: no };
+}
+
+// "1200 mm · 1000 N/mm · 4 plies"
+function beltText_(r) {
+  return [r.BeltWidth_mm ? r.BeltWidth_mm + ' mm' : '', r.BeltRating_Nmm ? r.BeltRating_Nmm + ' N/mm' : '', r.Plies ? r.Plies + ' plies' : '']
+    .filter(String).join(' · ');
+}
+
+// A full set of the heater's parts, as asked for when the RTG team picks the heater.
+function fullSet_(modelId) {
+  return readTable('ComponentTypes').filter(function (t) { return t.ModelID === modelId; })
+    .map(function (t) { return { name: t.ComponentName, qty: Number(t.QtyPerSet) || 1 }; });
 }
 
 function listRequests() {
@@ -86,7 +109,7 @@ function listRequests() {
     var status = tk ? tk.Status : r.Status;
     var expected = tk ? tk.ExpectedReturnDate : r.ExpectedReturnDate;
     return {
-      RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID, ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
+      RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID || '', Belt: beltText_(r), HeaterAsked: r.HeaterAsked || '', ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
       VendorTeam: r.VendorTeam, FMRepresentative: r.FMRepresentative, RaisedOn: r.RaisedOn, IssueDate: r.IssueDate, ExpectedReturnDate: expected,
       Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo]
     };
@@ -107,7 +130,19 @@ function getRequest(user, d) {
   r.RequestedComponents = parseList_(r.RequestedComponents);
   var out = { request: r, ticket: tk, items: items, issues: issues, transfers: transfers, model: model, raisedByName: raiser ? raiser.Name : r.RaisedBy,
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
-  if (user.Role === 'Admin' && tk && tk.Status === TKT.AWAITING) {
+  out.belt = beltText_(r);
+  // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
+  if (isStoreUser_(user) && r.Status === REQ.PENDING) {
+    var hd = heaterData_();
+    var found = r.BeltWidth_mm ? heaterSearch(hd, r.BeltWidth_mm, r.BeltRating_Nmm, r.Plies) : { suitable: [] };
+    var stats = {};
+    found.suitable.forEach(function (x) { stats[x.model.ModelID] = x; });
+    out.heaterOptions = hd.models.map(function (m) {
+      var x = stats[m.ModelID];
+      return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
+    }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
+  }
+  if (isStoreUser_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
     out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
@@ -127,13 +162,20 @@ function decideRequest(admin, d) {
     updateWhere('Requests', 'RequestNo', r.RequestNo, { Status: REQ.REJECTED, DecidedBy: admin.UserID, DecidedOn: new Date(), RejectReason: d.reason });
     audit(admin.UserID, 'rejectRequest', r.RequestNo, { reason: d.reason });
     queueMail('REQUEST_REJECTED', r.RequestNo, contacts_(r), rejectCC, 'Heater request ' + r.RequestNo + ' rejected by RTG team',
-      mailHtml_('Request ' + r.RequestNo + ' has been rejected by the RTG team', [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Vendor team', r.VendorTeam], ['Reason', d.reason]]));
+      mailHtml_('Request ' + r.RequestNo + ' has been rejected by the RTG team', [['Heater', model.ModelName || beltText_(r)], ['Conveyor', r.ConveyorName], ['Vendor team', r.VendorTeam], ['Reason', d.reason]]));
     return { status: REQ.REJECTED };
   }
   if (d.decision !== 'approve') throw new Error('Unknown decision.');
+  var modelId = d.ModelID || r.ModelID;
+  if (!modelId) throw new Error('Choose the heater to give for this belt.');
+  model = findOne('HeaterModels', 'ModelID', modelId);
+  if (!model) throw new Error('Unknown heater model.');
+  var patch = { Status: REQ.APPROVED, DecidedBy: admin.UserID, DecidedOn: new Date() };
+  if (modelId !== r.ModelID) { patch.ModelID = modelId; patch.RequestedComponents = JSON.stringify(fullSet_(modelId)); }
   var ticketNo = nextNumber('ticket', 'HEATER_');
-  updateWhere('Requests', 'RequestNo', r.RequestNo, { Status: REQ.APPROVED, DecidedBy: admin.UserID, DecidedOn: new Date(), TicketNo: ticketNo });
-  appendRow('Tickets', { TicketNo: ticketNo, RequestNo: r.RequestNo, ModelID: r.ModelID, Status: TKT.AWAITING, ConveyorName: r.ConveyorName, ExpectedReturnDate: r.ExpectedReturnDate });
+  patch.TicketNo = ticketNo;
+  updateWhere('Requests', 'RequestNo', r.RequestNo, patch);
+  appendRow('Tickets', { TicketNo: ticketNo, RequestNo: r.RequestNo, ModelID: modelId, Status: TKT.AWAITING, ConveyorName: r.ConveyorName, ExpectedReturnDate: r.ExpectedReturnDate });
   audit(admin.UserID, 'approveRequest', r.RequestNo, { ticket: ticketNo });
   queueMail('REQUEST_APPROVED', r.RequestNo, contacts_(r), '', 'Heater request ' + r.RequestNo + ' approved: ticket ' + ticketNo,
     mailHtml_('Request ' + r.RequestNo + ' is approved. Your ticket number is ' + ticketNo, [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Expected return', r.ExpectedReturnDate]],
@@ -364,19 +406,19 @@ function dashboard(user) {
   var reqs = listRequests();
   var transfers = user ? listTransfers(user) : [];
   function count(fn) { return reqs.filter(fn).length; }
-  var comps = readTable('Components');
+  var comps = readTable('Components'), store = !user || isStoreUser_(user);
   return {
     pending: count(function (r) { return r.Status === REQ.PENDING; }),
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
-    maintenanceDue: comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
-    missing: comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
+    maintenanceDue: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
+    missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
     transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
     transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length,
     maintenanceToVerify: readTable('MaintenanceLogs').filter(function (l) { return l.Status === 'Submitted'; }).length,
-    consumablePending: readTable('ConsumableRequests').filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length,
-    consumableAlerts: listConsumables().filter(function (c) { return c.lowStock || c.expiringSoon || c.expiredQty > 0; }).length
+    consumablePending: listConsumableRequests(user).filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length,
+    consumableAlerts: !store ? 0 : listConsumables().filter(function (c) { return c.lowStock || c.expiringSoon || c.expiredQty > 0; }).length
   };
 }

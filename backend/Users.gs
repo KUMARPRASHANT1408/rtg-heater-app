@@ -10,6 +10,7 @@ function saveUser(admin, data) {
   if (!userId) throw new Error('User ID is required.');
   if (!data.Name) throw new Error('Name is required.');
   if (ROLES.indexOf(data.Role) < 0) throw new Error('Unknown role: ' + data.Role);
+  if (data.Team && TEAMS.indexOf(data.Team) < 0) throw new Error('Unknown team: ' + data.Team);
 
   var fields = { Name: data.Name, EmployeeID: data.EmployeeID || '', Email: data.Email || '', Role: data.Role,
                  Team: data.Team || '', Department: data.Department || '', Phone: data.Phone || '',

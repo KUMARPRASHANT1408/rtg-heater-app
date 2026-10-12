@@ -89,7 +89,9 @@ var SCHEMA = {
     "DecidedBy",
     "DecidedOn",
     "RejectReason",
-    "TicketNo"
+    "TicketNo",
+    "Plies",
+    "HeaterAsked"
   ],
   "Tickets": [
     "TicketNo",

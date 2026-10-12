@@ -12,8 +12,12 @@
   }
   function $(sel, root) { return (root || document).querySelector(sel); }
   function isAdmin() { return state.user && state.user.Role === 'Admin'; }
-  // The RTG team may look at the heater inventory; only admins change it.
-  function canSeeInventory() { return isAdmin() || (state.user && state.user.Team === 'RTG'); }
+  // Teams: FM asks for heaters; Vendor (jointing contractors) asks for consumables; RTG runs the store and approves;
+  // RTG Vendor (the store's contractor) issues, maintains heaters and keeps the stock. Admins see and do everything.
+  function team() { return (state.user && state.user.Team) || ''; }
+  function isStore() { return isAdmin() || team() === 'RTG' || team() === 'RTG Vendor'; }
+  function isRtgTeam() { return isAdmin() || team() === 'RTG'; }
+  function canUpdateStock() { return isAdmin() || team() === 'RTG Vendor'; }
   function toast(msg) {
     var t = document.createElement('div');
     t.className = 'toast'; t.textContent = msg;
@@ -44,8 +48,8 @@
     { hash: '#/requests', label: 'Requests' },
     { hash: '#/transfers', label: 'Transfers' },
     { hash: '#/consumables', label: 'Consumables' },
-    { hash: '#/maintenance', label: 'Maintenance', maint: true },
-    { hash: '#/inventory', label: 'Inventory', inv: true },
+    { hash: '#/maintenance', label: 'Maintenance' },
+    { hash: '#/inventory', label: 'Inventory' },
     { hash: '#/users', label: 'Users', admin: true },
     { hash: '#/admin', label: 'Settings', admin: true }
   ];
@@ -54,6 +58,13 @@
                  '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator,
                  '#/admin': renderAdmin };
   var ADMIN_ROUTES = ['#/users', '#/admin'];
+  // Pages for people outside the store. Everyone else (RTG, RTG Vendor, admins) has every page but the admin ones.
+  var FM_PAGES = ['#/home', '#/heaters', '#/requests', '#/request', '#/ticket', '#/transfers'];
+  var VENDOR_PAGES = ['#/home', '#/consumables'];
+  function allowedPage(hash) {
+    if (isStore()) return ADMIN_ROUTES.indexOf(hash) < 0 || isAdmin();
+    return (team() === 'Vendor' ? VENDOR_PAGES : FM_PAGES).indexOf(hash) >= 0;
+  }
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
   function parseHash() {
@@ -72,7 +83,7 @@
     renderedAt = Date.now();
     if (!state.user) return renderLogin();
     var h = parseHash();
-    if ((ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) || (h.base === '#/inventory' && !canSeeInventory())) h = { base: '#/home', arg: '', params: {} };
+    if (!allowedPage(h.base)) h = { base: '#/home', arg: '', params: {} };
     renderChrome(h.base === '#/ticket' || h.base === '#/request' ? '#/requests' : h.base === '#/consumable' ? '#/consumables' : h.base);
     (ROUTES[h.base] || renderHome)(h.arg, h.params);
   }
@@ -81,8 +92,8 @@
     $('#topbar').classList.remove('hidden');
     $('#who-name').textContent = state.user.Name;
     $('#who-role').textContent = state.user.Role;
-    $('#nav').innerHTML = NAV.filter(function (n) { return (!n.admin || isAdmin()) && (!n.maint || canMaintain()) && (!n.inv || canSeeInventory()); }).map(function (n) {
-      return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.label) + '</a>';
+    $('#nav').innerHTML = NAV.filter(function (n) { return allowedPage(n.hash); }).map(function (n) {
+      return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.hash === '#/heaters' && !isStore() ? 'Request a heater' : n.label) + '</a>';
     }).join('');
   }
 
@@ -142,17 +153,20 @@
 
   function renderHome() {
     var tiles = [
-      { href: '#/heaters', ico: 'search', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' },
+      isStore() ? { href: '#/heaters', ico: 'search', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' }
+        : { href: '#/heaters', ico: 'search', title: 'Request a heater', text: 'Give the belt width, rating and plies. The RTG team chooses the heater and you get the ticket number.' },
       { href: '#/requests', ico: 'requests', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
-      { href: '#/transfers', ico: 'transfer', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG, HOD and Chiefs approval. See where each request is pending.' },
-      { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
+      { href: '#/transfers', ico: 'transfer', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG team and HOD approval. See where each request is pending.' },
+      isStore() ? { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
+        : { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Ask the RTG Store for jointing material and follow your requests.' }
     ];
-    if (canMaintain()) tiles.splice(isAdmin() ? 3 : 0, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
-    if (canSeeInventory()) {
+    if (isStore()) {
+      tiles.splice(canMaintain() && !isAdmin() ? 0 : 3, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
       tiles.splice(1, 0, { href: '#/inventory', ico: 'inventory', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
     }
     tiles.push({ href: '#/calculator', ico: 'calculator', title: 'Joint calculator', text: 'Step length, joint length, platen size, pressure and cure time from the belt details.' });
-    if (isAdmin()) tiles.push({ href: '#/users', ico: 'users', title: 'Users', text: 'Add people, choose admins and approvers, reset passwords.' });
+    tiles.push({ href: '#/users', ico: 'users', title: 'Users', text: 'Add people, choose admins and approvers, reset passwords.' });
+    tiles = tiles.filter(function (t) { return allowedPage(t.href); });
     view.innerHTML =
       '<div class="page-head"><div><h1>Welcome, ' + esc(state.user.Name) + '</h1><p class="muted">What would you like to do?</p></div></div>' +
       '<div class="grid grid-3">' + tiles.map(function (t) {
@@ -171,10 +185,11 @@
         return '<a class="card stat tile" href="#/requests?f=' + f + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
       }
       var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
-      box.innerHTML = mine + t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
-        t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad') +
-        (d.maintenanceToVerify && isAdmin() ? '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Maintenance logs to check</div><div class="value" style="color:var(--warn)">' + d.maintenanceToVerify + '</div></a>' : '') +
-        (d.consumablePending ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">Consumable requests</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
+      var heaterStats = team() === 'Vendor' ? '' : t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
+        t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
+      box.innerHTML = mine + heaterStats +
+        (d.maintenanceToVerify && isRtgTeam() ? '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Maintenance logs to check</div><div class="value" style="color:var(--warn)">' + d.maintenanceToVerify + '</div></a>' : '') +
+        (d.consumablePending || team() === 'Vendor' ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">' + (isStore() ? 'Consumable requests' : 'My open consumable requests') + '</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
         (d.consumableAlerts ? '<a class="card stat tile" href="#/consumables"><div class="label">Consumables low or expiring</div><div class="value" style="color:var(--bad)">' + d.consumableAlerts + '</div></a>' : '');
     }).catch(function () { box.remove(); });
   }
@@ -467,6 +482,7 @@
   }
 
   function renderHeaters() {
+    if (!isStore()) return renderNewRequest('', {});
     var conv = (state.lookups && state.lookups.conveyors) || [];
     view.innerHTML =
       '<div class="page-head"><div><h1>Find a suitable heater</h1><p class="muted">Pick a conveyor or type the belt details.</p></div></div>' +
@@ -480,7 +496,7 @@
       '<datalist id="guide-ratings"></datalist>' +
       '<label>No. of plies<input name="plies" type="number" min="1" inputmode="numeric"></label>' +
       '<button class="btn" type="submit">Show heaters</button>' +
-      '</div></form><div id="results" class="stack" style="margin-top:20px"></div>';
+      '</div><p class="small muted" style="margin:10px 0 0">Raising a request for FM? <a href="#/request">Request with just the belt details</a>.</p></form><div id="results" class="stack" style="margin-top:20px"></div>';
     var form = $('#form-search');
     // Suggest the ratings the selection guide lists for the typed width (steel-cord ones like ST1000 included).
     function fillRatings() {
@@ -626,10 +642,7 @@
     var models = (state.lookups && state.lookups.models) || [];
     var conv = (state.lookups && state.lookups.conveyors) || [];
     var model = models.filter(function (m) { return m.ModelID === params.model; })[0];
-    if (!model) {
-      view.innerHTML = '<div class="card"><h2>Choose a heater first</h2><p class="muted">Find a suitable heater for your belt, then press <b>Request this heater</b>.</p><a class="btn" href="#/heaters">Find a heater</a></div>';
-      return;
-    }
+    if (!model) return beltRequestForm(models, conv);
     view.innerHTML = '<div class="page-head"><div><h1>Request a heater</h1><p class="muted">' + esc(model.ModelName) + '</p></div><a class="btn secondary" href="#/heaters">Back</a></div><p class="muted">Loading…</p>';
     API.call('heaterSearch', { width: params.w || model.BeltWidthMin_mm, rating: params.r || 0 }).then(function (res) {
       var stats = res.suitable.filter(function (s) { return s.model.ModelID === model.ModelID; })[0] || { componentList: [] };
@@ -676,6 +689,61 @@
     }).catch(handleError);
   }
 
+  // FM gives only the belt details (and the heater number if they know it). The RTG team picks the heater when approving.
+  function beltRequestForm(models, conv) {
+    var t = todayStr(), fm = team() === 'FM';
+    view.innerHTML =
+      '<div class="page-head"><div><h1>Request a heater</h1><p class="muted">Give the belt details. The RTG team chooses a suitable heater and approves your request.</p></div>' +
+      '<a class="btn secondary" href="#/requests">My requests</a></div>' +
+      '<form id="form-request" class="stack">' +
+      '<div class="card stack"><h2>Belt</h2><div class="row">' +
+      '<label>Conveyor name<input name="ConveyorName" required list="conv-list" autocomplete="off"></label>' +
+      '<label>Belt width (mm)<input name="BeltWidth_mm" type="number" min="1" required inputmode="numeric" list="guide-widths"></label>' +
+      '<datalist id="guide-widths">' + guideWidths().map(function (w) { return '<option value="' + w + '">'; }).join('') + '</datalist>' +
+      '<label>Belt rating (N/mm)<input name="BeltRating_Nmm" required placeholder="e.g. 1000 or ST1000" autocomplete="off"></label>' +
+      '<label>No. of plies<input name="Plies" type="number" min="1" inputmode="numeric"></label>' +
+      '<label>Heater no. (if you know it)<input name="HeaterAsked" list="model-list" autocomplete="off" placeholder="Optional"></label>' +
+      '</div></div>' +
+      '<div class="card stack"><h2>Issue details</h2><div class="row">' +
+      '<label>Vendor team name<input name="VendorTeam" required></label>' +
+      '<label>Vendor team supervisor<input name="VendorSupervisor" required></label>' +
+      '<label>Vendor employee ID (collecting)<input name="VendorEmployeeID" required></label>' +
+      '</div><div class="row">' +
+      '<label>FM representative<input name="FMRepresentative" required value="' + esc(fm ? state.user.Name : '') + '"></label>' +
+      '<label>FM representative email<input name="FMEmail" type="email" value="' + esc(fm ? state.user.Email : '') + '"></label>' +
+      '<label>Date of issue<input name="IssueDate" type="date" required min="' + t + '" value="' + t + '"></label>' +
+      '<label>Expected return date<input name="ExpectedReturnDate" type="date" required min="' + t + '"></label>' +
+      '</div></div>' +
+      '<div class="alert error hidden" id="req-error"></div>' +
+      '<div class="actions"><button class="btn" type="submit">Raise request</button></div></form>' +
+      '<datalist id="conv-list">' + conv.map(function (c) { return '<option value="' + esc(c.ConveyorName) + '">'; }).join('') + '</datalist>' +
+      '<datalist id="model-list">' + models.map(function (m) { return '<option value="' + esc(m.ModelName) + '">'; }).join('') + '</datalist>';
+    var form = $('#form-request');
+    form.ConveyorName.addEventListener('change', function () {
+      var c = conv.filter(function (x) { return x.ConveyorName === form.ConveyorName.value; })[0];
+      if (!c) return;
+      if (c.BeltWidth_mm) form.BeltWidth_mm.value = c.BeltWidth_mm;
+      if (c.BeltRating_Nmm) form.BeltRating_Nmm.value = c.BeltRating_Nmm;
+      if (c.Plies) form.Plies.value = c.Plies;
+    });
+    form.BeltRating_Nmm.addEventListener('blur', function () {
+      var v = form.BeltRating_Nmm.value.trim().toUpperCase().replace(/\s+/g, '');
+      form.BeltRating_Nmm.value = /^(ST)?\d+$/.test(v) ? v : form.BeltRating_Nmm.value.trim();
+    });
+    form.IssueDate.addEventListener('change', function () { form.ExpectedReturnDate.min = form.IssueDate.value; });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var d = formData(form);
+      if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) return showError($('#req-error'), new Error('Type the rating as a number like 1000, or ST1000 for a steel-cord belt.'));
+      var btn = $('button[type=submit]', form);
+      busy(btn, true);
+      API.call('raiseRequest', d).then(function (r) {
+        toast('Request ' + r.RequestNo + ' raised. The RTG team will choose the heater.');
+        location.hash = '#/ticket/' + r.RequestNo;
+      }).catch(function (err) { showError($('#req-error'), err); busy(btn, false); });
+    });
+  }
+
   // ---------- requests list ----------
   var FILTERS = [
     { key: 'open', label: 'Open', fn: function (r) { return ['Rejected', 'Closed'].indexOf(r.Status) < 0; } },
@@ -711,7 +779,7 @@
         '<label>Show<select id="f-filter">' + FILTERS.map(function (f) { return '<option value="' + f.key + '"' + (f.key === filter.key ? ' selected' : '') + '>' + esc(f.label) + '</option>'; }).join('') + '</select></label></form>' +
         '<div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Heater</th><th>Conveyor</th><th>Vendor team</th><th>Return by</th><th>Status</th></tr></thead><tbody>' +
         (rows.map(function (r) {
-          return '<tr class="click" data-no="' + esc(r.RequestNo) + '"><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + esc(r.ModelName) +
+          return '<tr class="click" data-no="' + esc(r.RequestNo) + '"><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + (r.ModelName ? esc(r.ModelName) : '<span class="muted">' + esc(r.HeaterAsked ? r.HeaterAsked + ' (asked)' : 'RTG to choose') + '</span>') + (r.Belt ? '<div class="small muted">' + esc(r.Belt) + '</div>' : '') +
             '</td><td>' + esc(r.ConveyorName) + '</td><td>' + esc(r.VendorTeam) + '<div class="small muted">' + esc(r.FMRepresentative) + '</div></td><td>' + esc(r.ExpectedReturnDate) + '</td><td>' + statusPill(r.Status, r.Overdue) + '</td></tr>';
         }).join('') || '<tr><td colspan="7" class="muted">Nothing here.</td></tr>') +
         '</tbody></table></div></div>';
@@ -758,11 +826,12 @@
     var html =
       '<div class="page-head"><div><div class="small muted"><a href="#/requests">Requests</a> / ' + esc(r.RequestNo) + '</div>' +
       '<h1>' + esc(tk ? tk.TicketNo : r.RequestNo) + ' ' + statusPill(status, d.overdue) + '</h1>' +
-      '<p class="muted">' + esc(model.ModelName) + ' for ' + esc(tk ? tk.ConveyorName : r.ConveyorName) + (tk ? ' · request ' + esc(r.RequestNo) : '') + '</p></div></div>' +
+      '<p class="muted">' + esc(model.ModelName || 'Heater to be chosen by RTG') + ' for ' + esc(tk ? tk.ConveyorName : r.ConveyorName) + (tk ? ' · request ' + esc(r.RequestNo) : '') + '</p></div></div>' +
       '<div class="card" style="margin-bottom:16px">' + steps(d) + '</div>' +
       '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">' +
       '<div class="card stack"><h2>Details</h2><div class="details">' +
-      field('Conveyor', tk ? tk.ConveyorName : r.ConveyorName) + field('Heater', model.ModelName) + field('Vendor team', r.VendorTeam) + field('Vendor supervisor', r.VendorSupervisor) +
+      field('Conveyor', tk ? tk.ConveyorName : r.ConveyorName) + field('Belt', d.belt) + field('Heater', model.ModelName || 'To be chosen by RTG') +
+      (r.HeaterAsked ? field('Heater asked by FM', r.HeaterAsked) : '') + field('Vendor team', r.VendorTeam) + field('Vendor supervisor', r.VendorSupervisor) +
       field('Vendor employee ID', r.VendorEmployeeID) + field('FM representative', r.FMRepresentative) + field('Date of issue', r.IssueDate) +
       field('Expected return', tk ? tk.ExpectedReturnDate : r.ExpectedReturnDate) + field('Raised by', d.raisedByName) + field('Raised on', r.RaisedOn) +
       (r.Status === 'Rejected' ? field('Reject reason', r.RejectReason) : '') + (tk && tk.IssuedOn ? field('Issued on', tk.IssuedOn) : '') +
@@ -776,7 +845,8 @@
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (i.Remarks ? '<div class="small muted">' + esc(i.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(i.QtyOut) + '</td><td>' + pill + '</td></tr>';
         }).join('') + '</tbody></table></div>' :
         '<div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
-        r.RequestedComponents.map(function (c) { return '<tr><td>' + esc(c.name) + '</td><td class="num">' + esc(c.qty) + '</td></tr>'; }).join('') + '</tbody></table></div>') +
+        (r.RequestedComponents.map(function (c) { return '<tr><td>' + esc(c.name) + '</td><td class="num">' + esc(c.qty) + '</td></tr>'; }).join('') ||
+          '<tr><td colspan="2" class="muted">A full set of the heater the RTG team chooses.</td></tr>') + '</tbody></table></div>') +
       '</div></div>';
 
     if (d.issues.length) {
@@ -789,15 +859,15 @@
           (i.FMExplanation ? '<p class="small"><b>What happened (FM):</b> ' + esc(i.FMExplanation) + '</p>' : '') +
           (i.FMActionPlan ? '<p class="small"><b>Action FM will take:</b> ' + esc(i.FMActionPlan) + '</p>' : '') +
           (i.ClosingRemark ? '<p class="small"><b>RTG remark:</b> ' + esc(i.ClosingRemark) + '</p>' : '');
-        if (i.Status === 'Open' && !isAdmin() && fmCanAct(d)) {
+        if (i.Status === 'Open' && !isStore() && fmCanAct(d)) {
           body += '<form class="stack" data-explain="' + esc(i.IssueNo) + '"><label>What happened<textarea name="explanation" rows="2" required></textarea></label>' +
             '<label>What action you will take<textarea name="actionPlan" rows="2" required></textarea></label>' +
             '<div class="actions"><button class="btn" type="submit">Send explanation to RTG</button></div></form>';
         }
-        if (isAdmin() && i.Status === 'Explained') {
+        if (isRtgTeam() && i.Status === 'Explained') {
           body += '<form class="row" data-issue="' + esc(i.IssueNo) + '"><label>Your remark (optional)<input name="remark"></label><div><button class="btn" type="submit">Accept &amp; close</button></div></form>';
         }
-        if (isAdmin() && i.Status === 'Open') {
+        if (isRtgTeam() && i.Status === 'Open') {
           body += '<details><summary class="small">FM explained outside the app? Type it in</summary><form class="row" data-issue="' + esc(i.IssueNo) + '" style="margin-top:8px">' +
             '<label>FM explanation<textarea name="explanation" rows="2" required></textarea></label><div><button class="btn secondary" type="submit">Record &amp; close</button></div></form></details>';
         }
@@ -806,7 +876,7 @@
     }
 
     html += transferSection(d, status);
-    if (isAdmin()) html += adminPanel(d, status, outstanding);
+    if (isStore()) html += adminPanel(d, status, outstanding);
     else html += fmReturnPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
@@ -814,7 +884,7 @@
   }
 
   function fmCanAct(d) {
-    return isAdmin() || state.user.Team === 'FM' || d.request.RaisedBy === state.user.UserID;
+    return isAdmin() || team() === 'FM' || d.request.RaisedBy === state.user.UserID;
   }
 
   // FM hands the heater back: ticks what they are returning; RTG inspects it next.
@@ -834,8 +904,19 @@
   function adminPanel(d, status, outstanding) {
     var r = d.request;
     if (r.Status === 'Pending') {
+      if (!isRtgTeam()) return '<div class="card" style="margin-top:16px"><h2>Decision</h2><p class="muted">Waiting for the RTG team to choose the heater and approve.</p></div>';
+      var opts = d.heaterOptions || [];
+      var pick = r.ModelID || (opts.filter(function (o) { var a = String(r.HeaterAsked || '').trim().toLowerCase(); return a && (String(o.ModelName).toLowerCase() === a || String(o.ModelID).toLowerCase() === a); })[0] || {}).ModelID ||
+        (opts.filter(function (o) { return o.suitable && o.availableSets > 0; })[0] || opts.filter(function (o) { return o.suitable; })[0] || {}).ModelID || '';
       return '<div class="card stack" style="margin-top:16px"><h2>Decision</h2>' +
-        '<form id="form-decide" class="stack"><label>Reason (needed to reject)<textarea name="reason" rows="2" placeholder="Mailed to the FM / vendor team if you reject"></textarea></label>' +
+        '<form id="form-decide" class="stack">' +
+        '<label>Heater to give' + (d.belt ? ' for ' + esc(d.belt) : '') + '<select name="model"><option value="">Choose a heater</option>' +
+        opts.map(function (o) {
+          return '<option value="' + esc(o.ModelID) + '"' + (o.ModelID === pick ? ' selected' : '') + '>' + esc(o.ModelName) + ' · ' +
+            (o.suitable ? o.availableSets + ' set(s) ready' + (o.deployedCount ? ', ' + o.deployedCount + ' on site' : '') : 'not for this belt') + '</option>';
+        }).join('') + '</select></label>' +
+        (r.HeaterAsked ? '<p class="small muted" style="margin:0">FM asked for <b>' + esc(r.HeaterAsked) + '</b>.</p>' : '') +
+        '<label>Reason (needed to reject)<textarea name="reason" rows="2" placeholder="Mailed to the FM / vendor team if you reject"></textarea></label>' +
         '<div class="alert error hidden" id="decide-error"></div>' +
         '<div class="actions"><button class="btn secondary" type="button" data-decision="reject">Reject</button><button class="btn" type="button" data-decision="approve">Approve &amp; create ticket</button></div></form></div>';
     }
@@ -909,8 +990,10 @@
       if (!b) return;
       var reason = decide.reason.value.trim();
       if (b.dataset.decision === 'reject' && !reason) return showError($('#decide-error'), new Error('Write a reason before rejecting.'));
+      var modelId = decide.model ? decide.model.value : '';
+      if (b.dataset.decision === 'approve' && decide.model && !modelId) return showError($('#decide-error'), new Error('Choose the heater to give.'));
       busy(b, true);
-      API.call('decideRequest', { RequestNo: r.RequestNo, decision: b.dataset.decision, reason: reason }).then(function (res) {
+      API.call('decideRequest', { RequestNo: r.RequestNo, decision: b.dataset.decision, reason: reason, ModelID: modelId }).then(function (res) {
         if (res.TicketNo) { toast('Approved: ticket ' + res.TicketNo); location.hash = '#/ticket/' + res.TicketNo; } else reload('Request rejected and FM informed');
       }).catch(function (err) { showError($('#decide-error'), err); busy(b, false); });
     });
@@ -997,13 +1080,13 @@
 
   function renderTransfers(arg, params) {
     var show = params.f || 'pending';
-    view.innerHTML = '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs RTG, HOD, RTG Chief and FM Chief approval.</p></div></div><p class="muted">Loading…</p>';
+    view.innerHTML = '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs approval from the RTG team and the RTG HOD.</p></div></div><p class="muted">Loading…</p>';
     API.call('listTransfers').then(function (list) {
       var filters = { pending: function (t) { return t.waitingWith.length; }, mine: function (t) { return t.canDecide; }, all: function () { return true; } };
       var rows = list.filter(filters[show] || filters.pending);
       var mine = list.filter(filters.mine).length;
       view.innerHTML =
-        '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs RTG, HOD, RTG Chief and FM Chief approval.</p></div>' +
+        '<div class="page-head"><div><h1>Site transfers</h1><p class="muted">Moving a used heater to another conveyor without maintenance needs approval from the RTG team and the RTG HOD.</p></div>' +
         '<p class="muted small" style="max-width:280px">To ask for a move, open the ticket of a heater on site and press <b>Move to another site</b>.</p></div>' +
         '<div class="chips">' + [['pending', 'Waiting for approval'], ['mine', 'Waiting for me' + (mine ? ' (' + mine + ')' : '')], ['all', 'All']].map(function (c) {
           return '<a class="chip' + (show === c[0] ? ' active' : '') + '" href="#/transfers?f=' + c[0] + '">' + esc(c[1]) + '</a>';
@@ -1021,7 +1104,7 @@
     return '<div class="stack" style="margin-top:16px"><div class="model-head"><h2 style="margin:0">Site transfers</h2>' +
       (canMove ? '<button class="btn secondary" type="button" id="open-move">Move to another site</button>' : '') + '</div>' +
       (canMove ? '<form id="form-move" class="card stack hidden"><h2>Request to move this heater</h2>' +
-        '<p class="muted small">A heater should be used for one joint and then maintained. Moving it without maintenance needs approval from the RTG team, RTG HOD, RTG Chief and FM Chief.</p>' +
+        '<p class="muted small">A heater should be used for one joint and then maintained. Moving it without maintenance needs approval from the RTG team and the RTG HOD.</p>' +
         '<div class="row"><label>Move to conveyor<input name="ToConveyor" required list="conv-list2"></label>' +
         '<label>Your employee ID<input name="EmployeeID" required value="' + esc(state.user.EmployeeID || '') + '"></label>' +
         '<label>New expected return date<input name="NewExpectedReturn" type="date" required min="' + todayStr() + '"></label></div>' +
@@ -1093,7 +1176,7 @@
           return true;
         });
         $('#inv-body').innerHTML = list.map(function (c) {
-          var selectable = isAdmin() && (c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c)));
+          var selectable = canUpdateStock() && (c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c)));
           return '<tr><td>' + (selectable ? '<input type="checkbox" data-sel="' + esc(c.ComponentID) + '" style="min-height:auto">' : '') + '</td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(name[c.ModelID] || c.ModelID) + '</td><td>' + esc(c.SetNo) + '</td><td>' + esc(c.ComponentName) +
             (c.Remarks ? '<div class="small muted">' + esc(c.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(c.Qty) + '</td><td>' + pill(c) + '</td><td>' +
             esc(c.CurrentTicket) + (c.CurrentConveyor ? '<div class="small muted">' + esc(c.CurrentConveyor) + '</div>' : '') + '</td><td class="num">' + esc(c.JointsSinceMaintenance) + '</td></tr>';
@@ -1283,10 +1366,28 @@
       });
   }
 
+  // Jointing vendors only ask for material and follow their own requests; they don't see the stock.
+  function renderConsumableAsk() {
+    var head = '<div class="page-head"><div><h1>Consumables</h1><p class="muted">Ask the RTG Store for jointing material. The RTG team approves and the store issues it.</p></div>' +
+      '<div class="actions" style="margin:0"><button class="btn" type="button" id="c-request">+ Request material</button></div></div>';
+    view.innerHTML = head + '<p class="muted">Loading…</p>';
+    Promise.all([API.call('consumableItems'), API.call('listConsumableRequests')]).then(function (res) {
+      var items = res[0], reqs = res[1];
+      view.innerHTML = head + '<div class="card"><h2>My requests</h2><div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Material</th><th class="num">Qty</th><th>Department / conveyor</th><th>Purpose</th><th>Status</th></tr></thead><tbody>' +
+        (reqs.map(function (r) {
+          return '<tr><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + esc(r.ItemName) + '</td><td class="num">' + qtyText(r.IssuedQty || r.Qty, r.Unit) + '</td>' +
+            '<td>' + esc(r.Department) + '<div class="small muted">' + esc(r.Conveyor) + '</div></td><td>' + esc(r.Purpose) + (r.RejectReason ? '<div class="small" style="color:var(--bad)">Rejected: ' + esc(r.RejectReason) + '</div>' : '') + '</td>' +
+            '<td><span class="pill ' + (CREQ_PILL[r.Status] || 'info') + '">' + esc(r.Status) + '</span></td></tr>';
+        }).join('') || '<tr><td colspan="7" class="muted">You have not asked for anything yet.</td></tr>') + '</tbody></table></div></div>';
+      $('#c-request').addEventListener('click', function () { openConsumableRequest(items, '', renderConsumableAsk); });
+    }).catch(handleError);
+  }
+
   function renderConsumables(arg, params) {
+    if (!isStore()) return renderConsumableAsk();
     var tab = params.f === 'requests' ? 'requests' : 'items';
     var head = '<div class="page-head"><div><h1>Consumables</h1><p class="muted">Jointing material in the RTG Store: stock, expiry, consumption and requests.</p></div>' +
-      '<div class="actions" style="margin:0">' + (isAdmin() ? '<button class="btn secondary" type="button" id="c-upload">Upload file</button><button class="btn secondary" type="button" id="c-entry">Update stock</button>' : '') +
+      '<div class="actions" style="margin:0">' + (canUpdateStock() ? '<button class="btn secondary" type="button" id="c-upload">Upload file</button><button class="btn secondary" type="button" id="c-entry">Update stock</button>' : '') +
       '<button class="btn" type="button" id="c-request">+ Request material</button></div></div>';
     view.innerHTML = '<div class="page-head"><div><h1>Consumables</h1></div></div><p class="muted">Loading…</p>';
     Promise.all([API.call('listConsumables'), API.call('listConsumableRequests')]).then(function (res) {
@@ -1327,20 +1428,21 @@
               (i.monthsCover !== null ? '<span>Lasts <b>' + esc(i.monthsCover) + ' mo</b></span>' : '') + '</div></a>';
           }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
       } else {
-        html += '<div class="card"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Material</th><th class="num">Qty</th><th>Department / conveyor</th><th>Purpose</th><th>Status</th>' + (isAdmin() ? '<th></th>' : '') + '</tr></thead><tbody>' +
+        html += '<div class="card"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Material</th><th class="num">Qty</th><th>Department / conveyor</th><th>Purpose</th><th>Status</th><th></th></tr></thead><tbody>' +
           (reqs.map(function (r) {
             var act = '';
-            if (isAdmin() && r.Status === 'Pending') act = '<button class="btn small" data-approve="' + esc(r.RequestNo) + '" type="button">Approve</button> <button class="btn small danger" data-reject="' + esc(r.RequestNo) + '" type="button">Reject</button>';
-            if (isAdmin() && r.Status === 'Approved') act = '<button class="btn small" data-issue="' + esc(r.RequestNo) + '" type="button">Issue</button>';
+            if (isRtgTeam() && r.Status === 'Pending') act = '<button class="btn small" data-approve="' + esc(r.RequestNo) + '" type="button">Approve</button> <button class="btn small danger" data-reject="' + esc(r.RequestNo) + '" type="button">Reject</button>';
+            if (!isRtgTeam() && r.Status === 'Pending') act = '<span class="small muted">RTG team to approve</span>';
+            if (r.Status === 'Approved') act = '<button class="btn small" data-issue="' + esc(r.RequestNo) + '" type="button">Issue</button>';
             return '<tr><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + ' · ' + esc(r.RaisedByName) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + esc(r.ItemName) + '</td><td class="num">' + qtyText(r.IssuedQty || r.Qty, r.Unit) + '</td>' +
               '<td>' + esc(r.Department) + '<div class="small muted">' + esc(r.Conveyor) + '</div></td><td>' + esc(r.Purpose) + (r.RejectReason ? '<div class="small" style="color:var(--bad)">Rejected: ' + esc(r.RejectReason) + '</div>' : '') +
               (r.IssuedBatch ? '<div class="small muted">Batch ' + esc(r.IssuedBatch) + '</div>' : '') + '</td>' +
-              '<td><span class="pill ' + (CREQ_PILL[r.Status] || 'info') + '">' + esc(r.Status) + '</span></td>' + (isAdmin() ? '<td style="white-space:nowrap">' + act + '</td>' : '') + '</tr>';
+              '<td><span class="pill ' + (CREQ_PILL[r.Status] || 'info') + '">' + esc(r.Status) + '</span></td><td style="white-space:nowrap">' + act + '</td></tr>';
           }).join('') || '<tr><td colspan="8" class="muted">No consumable requests yet.</td></tr>') + '</tbody></table></div></div>';
       }
       view.innerHTML = html;
       $('#c-request').addEventListener('click', function () { openConsumableRequest(items, '', function () { location.hash = '#/consumables?f=requests'; reload(); }); });
-      if (isAdmin()) {
+      if (canUpdateStock()) {
         $('#c-entry').addEventListener('click', function () { openStockEntry(items, '', reload); });
         $('#c-upload').addEventListener('click', function () { openUpload(items, reload); });
       }
@@ -1379,7 +1481,7 @@
       var diff = s.SAPStock !== '' ? s.stock - Number(s.SAPStock) : null;
       view.innerHTML =
         '<div class="page-head"><div><h1>' + esc(s.ItemName) + '</h1><p class="muted">' + esc(s.Manufacturer || 'Manufacturer not set') + (s.Unit ? ' · unit: ' + esc(s.Unit) : '') + '</p></div>' +
-        '<div class="actions" style="margin:0"><a class="btn secondary" href="#/consumables">Back</a>' + (isAdmin() ? '<button class="btn secondary" id="i-edit" type="button">Edit details</button><button class="btn secondary" id="i-entry" type="button">Update stock</button>' : '') +
+        '<div class="actions" style="margin:0"><a class="btn secondary" href="#/consumables">Back</a>' + (canUpdateStock() ? '<button class="btn secondary" id="i-edit" type="button">Edit details</button><button class="btn secondary" id="i-entry" type="button">Update stock</button>' : '') +
         '<button class="btn" id="i-request" type="button">Request this</button></div></div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
         statTile('Usable stock', s.usableStock + (s.Unit ? ' ' + s.Unit : ''), true) +
@@ -1404,7 +1506,7 @@
         }).join('') || '<tr><td colspan="7" class="muted">Nothing yet.</td></tr>') + '</tbody></table></div></div>';
       drawMonthly(d.monthly, s.avgMonthly);
       $('#i-request').addEventListener('click', function () { openConsumableRequest(items, id, function () { location.hash = '#/consumables?f=requests'; }); });
-      if (isAdmin()) {
+      if (canUpdateStock()) {
         $('#i-entry').addEventListener('click', function () { openStockEntry(items, id, reload); });
         $('#i-edit').addEventListener('click', function () {
           formDialog('Edit ' + s.ItemName,
@@ -1443,7 +1545,7 @@
   }
 
   // ---------- heater maintenance (vendor logs, RTG verifies) ----------
-  function canMaintain() { return isAdmin() || (state.user && state.user.Team === 'Vendor'); }
+  function canMaintain() { return isAdmin() || team() === 'RTG Vendor'; }
   var MLOG_PILL = { Submitted: 'warn', Verified: 'good', Rejected: 'bad' };
 
   // Photos are shrunk before upload so they go up quickly over mobile data. PDFs go as they are.
@@ -1492,8 +1594,9 @@
   }
 
   function renderMaintenance(arg, params) {
-    if (!canMaintain()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and the maintenance vendor.</p></div>'; return; }
-    var show = params.f || (isAdmin() ? 'verify' : 'log');
+    if (!isStore()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and RTG Vendor.</p></div>'; return; }
+    var show = params.f || (canMaintain() && !isAdmin() ? 'log' : 'verify');
+    if (show === 'log' && !canMaintain()) show = 'verify';
     view.innerHTML = '<div class="page-head"><div><h1>Heater maintenance</h1></div></div><p class="muted">Loading…</p>';
     Promise.all([API.call('maintenanceDue'), API.call('listMaintenanceLogs')]).then(function (res) {
       var due = res[0], logs = res[1];
@@ -1506,10 +1609,10 @@
       }
       var html = '<div class="page-head"><div><h1>Heater maintenance</h1><p class="muted">After every joint, parts come back "maintenance due". The vendor logs the maintenance with the checklist, RTG verifies, and the parts are ready to issue again.</p></div></div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
-        stat('Parts due after a joint', free.filter(function (c) { return c.due; }).length, 'warn', 'log') +
+        stat('Parts due after a joint', free.filter(function (c) { return c.due; }).length, 'warn', canMaintain() ? 'log' : 'all') +
         stat('Logs waiting for RTG check', waiting.length, 'warn', 'verify') +
         stat('Verified this month', logs.filter(function (l) { return l.Status === 'Verified' && String(l.VerifiedOn).slice(0, 7) === month; }).length, '', 'all') + '</div>' +
-        '<div class="chips">' + [['log', 'Log maintenance'], ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].map(function (c) {
+        '<div class="chips">' + [canMaintain() ? ['log', 'Log maintenance'] : null, ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].filter(Boolean).map(function (c) {
           return '<a class="chip' + (show === c[0] ? ' active' : '') + '" href="#/maintenance?f=' + c[0] + '">' + esc(c[1]) + '</a>';
         }).join('') + '</div>';
 
@@ -1557,7 +1660,7 @@
             '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + '</span>'; }).join('') + '</div>' +
             (l.RTGRemark ? '<p class="small"><b>RTG:</b> ' + esc(l.RTGRemark) + (l.VerifiedBy ? ' <span class="muted">(' + esc(l.VerifiedBy) + ', ' + esc(l.VerifiedOn) + ')</span>' : '') + '</p>' : '') +
             '<div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" data-checklist="' + esc(l.LogNo) + '">View checklist</button>' +
-            (isAdmin() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
+            (isRtgTeam() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
             '</div></div>';
         }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
       }

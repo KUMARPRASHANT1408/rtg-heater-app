@@ -1,5 +1,5 @@
 // Moving a deployed heater straight to another conveyor without bringing it back to the store.
-// Approval chain: RTG admin -> RTG HOD -> RTG Chief AND FM Chief (both, in either order).
+// Approval chain: RTG team -> RTG HOD. (Transfers raised before October 2026 may still wait for the RTG Chief and FM Chief.)
 
 var TRF = { RTG: 'Pending RTG', HOD: 'Pending HOD', CHIEFS: 'Pending Chiefs', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELLED: 'Cancelled' };
 var TRF_DONE = [TRF.APPROVED, TRF.REJECTED, TRF.CANCELLED];
@@ -11,7 +11,8 @@ function approvalsFor_(transferNo) {
 
 // Which stage this user may decide right now, or null.
 function stageFor_(user, t, approvals) {
-  if (t.Status === TRF.RTG && user.Role === 'Admin') return 'RTG';
+  // The HOD has their own stage, so one person can't give both approvals.
+  if (t.Status === TRF.RTG && isRtgTeam_(user) && user.Role !== 'HOD') return 'RTG';
   if (t.Status === TRF.HOD && user.Role === 'HOD') return 'HOD';
   if (t.Status === TRF.CHIEFS && CHIEF_ROLES.indexOf(user.Role) >= 0 &&
       !approvals.some(function (a) { return a.Stage === user.Role; })) return user.Role;
@@ -34,7 +35,8 @@ function transferStages_(t, approvals) {
     var a = approvals.filter(function (x) { return x.Stage === stage; })[0];
     return { stage: stage, decision: a ? a.Decision : '', by: a ? a.ApproverUserID : '', on: a ? a.DecidedOn : '', comment: a ? a.Comment : '' };
   }
-  var stages = [st('RTG'), st('HOD'), st('RTG Chief'), st('FM Chief')];
+  var stages = [st('RTG'), st('HOD')];
+  if (t.Status === TRF.CHIEFS || approvals.some(function (a) { return CHIEF_ROLES.indexOf(a.Stage) >= 0; })) stages.push(st('RTG Chief'), st('FM Chief'));
   var waiting = [];
   if (t.Status === TRF.RTG) waiting = ['RTG team'];
   if (t.Status === TRF.HOD) waiting = ['RTG HOD'];
@@ -94,7 +96,7 @@ function decideTransfer(user, d) {
 
   var next = null;
   if (stage === 'RTG') next = TRF.HOD;
-  else if (stage === 'HOD') next = TRF.CHIEFS;
+  else if (stage === 'HOD') next = TRF.APPROVED;
   else {
     var done = approvals.filter(function (a) { return CHIEF_ROLES.indexOf(a.Stage) >= 0 && a.Decision === 'Approved'; }).length + 1;
     next = done >= CHIEF_ROLES.length ? TRF.APPROVED : TRF.CHIEFS;
@@ -109,7 +111,7 @@ function decideTransfer(user, d) {
     updateRows('Components', function (c) {
       return onSite[c.ComponentID] ? { CurrentConveyor: t.ToConveyor, JointsSinceMaintenance: (Number(c.JointsSinceMaintenance) || 0) + 1 } : null;
     });
-    queueMail('TRANSFER_APPROVED', t.TransferNo, fmTo, [getSetting('RTGTeamMail', ''), roleEmails_(['HOD', 'RTG Chief', 'FM Chief'])].filter(String).join(','),
+    queueMail('TRANSFER_APPROVED', t.TransferNo, fmTo, [getSetting('RTGTeamMail', ''), roleEmails_(['HOD'])].filter(String).join(','),
       'Transfer ' + t.TransferNo + ' approved: heater ' + t.TicketNo + ' may move to ' + t.ToConveyor,
       mailHtml_('Transfer ' + t.TransferNo + ' is fully approved', transferRows_(t), 'The heater may now be moved. Return it to the RTG Store by the new return date.'));
   } else if (next !== t.Status) {

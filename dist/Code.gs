@@ -94,6 +94,18 @@ function apiLog(d) {
 var SESSION_SECONDS = 6 * 60 * 60; // Apps Script cache maximum
 var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
+// FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
+// RTG: the store team. RTG Vendor: the store's own contractor, who also maintains the heaters and keeps the stock.
+var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
+
+// Who may do what. Admins may do everything.
+function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
+// Sees the heater and consumable stock, and issues and takes back at the store.
+function isStoreUser_(u) { return isAdminUser_(u) || (!!u && (u.Team === 'RTG' || u.Team === 'RTG Vendor')); }
+// Approves and rejects requests and closes issues.
+function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
+// Changes stock: consumable entries and uploads, and heater part maintenance, repair, scrap and found.
+function canUpdateStock_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;
@@ -149,13 +161,13 @@ function isActive_(u) {
 }
 
 // Returns the logged-in user, or throws. Pass roles to restrict an action.
-function requireUser(token, roles, teams) {
+function requireUser(token, roles) {
   var cache = CacheService.getScriptCache();
   var userId = token && cache.get('sess:' + token);
   if (!userId) throw new AuthError('Session expired. Please log in again.');
   var u = findOne('Users', 'UserID', userId);
   if (!u || !isActive_(u)) throw new AuthError('Account disabled.');
-  if (roles && roles.indexOf(u.Role) < 0 && !(teams && teams.indexOf(u.Team) >= 0)) throw new Error('You do not have permission for this.');
+  if (roles && roles.indexOf(u.Role) < 0) throw new Error('You do not have permission for this.');
   cache.put('sess:' + token, userId, SESSION_SECONDS); // sliding expiry
   return u;
 }
@@ -182,16 +194,20 @@ function changePassword(user, oldPassword, newPassword) {
 
 var ADMIN = ['Admin'];
 var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
-                 'listConsumables', 'consumableDetail', 'listConsumableRequests',
+                 'listConsumables', 'consumableDetail', 'consumableItems', 'listConsumableRequests',
                  'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
 
-// action -> { roles: who may call it (null = any logged-in user), teams: teams also allowed, run: function(user, data) }
+// action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
+// STORE: RTG and RTG Vendor (see stock, issue, take back). RTG: the RTG team (approve). STOCK: RTG Vendor (change stock).
+function STORE(u) { return isStoreUser_(u); }
+function RTG(u) { return isRtgTeam_(u); }
+function STOCK(u) { return canUpdateStock_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
   changePassword: { roles: null,  run: function (u, d) { return changePassword(u, d.oldPassword, d.newPassword); } },
   lookups:        { roles: null,  run: function () { return apiLookups(); } },
-  heaterSearch:   { roles: null,  run: function (u, d) { return apiHeaterSearch(d); } },
-  components:     { roles: ADMIN, teams: ['RTG'], run: function (u, d) { return apiComponents(d); } },
+  heaterSearch:   { allow: STORE, run: function (u, d) { return apiHeaterSearch(d); } },
+  components:     { allow: STORE, run: function (u, d) { return apiComponents(d); } },
   listUsers:      { roles: ADMIN, run: function () { return listUsers(); } },
   saveUser:       { roles: ADMIN, run: function (u, d) { return saveUser(u, d); } },
   resetPassword:  { roles: ADMIN, run: function (u, d) { return resetPassword(u, d.UserID); } },
@@ -200,31 +216,32 @@ var ACTIONS = {
   listRequests:   { roles: null,  run: function () { return listRequests(); } },
   getRequest:     { roles: null,  run: function (u, d) { return getRequest(u, d); } },
   dashboard:      { roles: null,  run: function (u) { return dashboard(u); } },
-  decideRequest:  { roles: ADMIN, run: function (u, d) { return decideRequest(u, d); } },
-  issueTicket:    { roles: ADMIN, run: function (u, d) { return issueTicket(u, d); } },
-  returnTicket:   { roles: ADMIN, run: function (u, d) { return returnTicket(u, d); } },
-  closeIssue:     { roles: ADMIN, run: function (u, d) { return closeIssue(u, d); } },
+  decideRequest:  { allow: RTG,   run: function (u, d) { return decideRequest(u, d); } },
+  issueTicket:    { allow: STORE, run: function (u, d) { return issueTicket(u, d); } },
+  returnTicket:   { allow: STORE, run: function (u, d) { return returnTicket(u, d); } },
+  closeIssue:     { allow: RTG,   run: function (u, d) { return closeIssue(u, d); } },
   declareReturn:  { roles: null,  run: function (u, d) { return declareReturn(u, d); } },
   explainIssue:   { roles: null,  run: function (u, d) { return explainIssue(u, d); } },
-  maintenance:    { roles: ADMIN, run: function (u, d) { return completeMaintenance(u, d); } },
-  markFound:      { roles: ADMIN, run: function (u, d) { return markFound(u, d); } },
+  maintenance:    { allow: STOCK, run: function (u, d) { return completeMaintenance(u, d); } },
+  markFound:      { allow: STOCK, run: function (u, d) { return markFound(u, d); } },
   raiseTransfer:  { roles: null,  run: function (u, d) { return raiseTransfer(u, d); } },
   decideTransfer: { roles: null,  run: function (u, d) { return decideTransfer(u, d); } },
   listTransfers:  { roles: null,  run: function (u) { return listTransfers(u); } },
-  listConsumables:          { roles: null,  run: function () { return listConsumables(); } },
-  consumableDetail:         { roles: null,  run: function (u, d) { return consumableDetail(d); } },
-  saveConsumable:           { roles: ADMIN, run: function (u, d) { return saveConsumable(u, d); } },
-  stockEntry:               { roles: ADMIN, run: function (u, d) { return stockEntry(u, d); } },
-  uploadStock:              { roles: ADMIN, run: function (u, d) { return uploadStock(u, d); } },
+  listConsumables:          { allow: STORE, run: function () { return listConsumables(); } },
+  consumableDetail:         { allow: STORE, run: function (u, d) { return consumableDetail(d); } },
+  consumableItems:          { roles: null,  run: function () { return consumableItems(); } },
+  saveConsumable:           { allow: STOCK, run: function (u, d) { return saveConsumable(u, d); } },
+  stockEntry:               { allow: STOCK, run: function (u, d) { return stockEntry(u, d); } },
+  uploadStock:              { allow: STOCK, run: function (u, d) { return uploadStock(u, d); } },
   raiseConsumableRequest:   { roles: null,  run: function (u, d) { return raiseConsumableRequest(u, d); } },
-  listConsumableRequests:   { roles: null,  run: function () { return listConsumableRequests(); } },
-  decideConsumableRequest:  { roles: ADMIN, run: function (u, d) { return decideConsumableRequest(u, d); } },
-  issueConsumable:          { roles: ADMIN, run: function (u, d) { return issueConsumable(u, d); } },
+  listConsumableRequests:   { roles: null,  run: function (u) { return listConsumableRequests(u); } },
+  decideConsumableRequest:  { allow: RTG,   run: function (u, d) { return decideConsumableRequest(u, d); } },
+  issueConsumable:          { allow: STORE, run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
-  listMaintenanceLogs:      { roles: null,  run: function (u) { return listMaintenanceLogs(u); } },
-  getChecklist:             { roles: null,  run: function (u, d) { return getChecklist(u, d); } },
-  verifyMaintenance:        { roles: ADMIN, run: function (u, d) { return verifyMaintenance(u, d); } },
+  listMaintenanceLogs:      { allow: STORE, run: function (u) { return listMaintenanceLogs(u); } },
+  getChecklist:             { allow: STORE, run: function (u, d) { return getChecklist(u, d); } },
+  verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
   masterDelete:             { roles: ADMIN, run: function (u, d) { return apiMasterDelete(u, d); } },
@@ -253,7 +270,8 @@ function handle(req) {
     if (req.action === 'logout') return { ok: true, data: logout(req.token) };
     var a = ACTIONS[req.action];
     if (!a) return { ok: false, error: 'Unknown action: ' + req.action };
-    var user = requireUser(req.token, a.roles, a.teams);
+    var user = requireUser(req.token, a.roles);
+    if (a.allow && !a.allow(user)) throw new Error('You do not have permission for this.');
     if (READ_ONLY.indexOf(req.action) >= 0) return { ok: true, data: a.run(user, req.data || {}) };
     // One writer at a time, so two people can't approve or issue the same thing at once.
     var lock = LockService.getScriptLock();
@@ -501,12 +519,18 @@ function raiseConsumableRequest(user, d) {
   return { RequestNo: no };
 }
 
-function listConsumableRequests() {
+// Names only, for people who ask for material but don't see the stock.
+function consumableItems() {
+  return readTable('Consumables').map(function (i) { return { ItemID: i.ItemID, ItemName: i.ItemName, Unit: i.Unit }; });
+}
+
+// The store sees every request; anyone else sees the ones they raised.
+function listConsumableRequests(user) {
   var items = {};
   readTable('Consumables').forEach(function (i) { items[i.ItemID] = i; });
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
-  return readTable('ConsumableRequests').map(function (r) {
+  return readTable('ConsumableRequests').filter(function (r) { return !user || isStoreUser_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
     var it = items[r.ItemID] || {};
     return Object.assign({}, r, { ItemName: it.ItemName || r.ItemID, Unit: it.Unit || '', RaisedByName: users[r.RaisedBy] || r.RaisedBy });
   }).reverse();
@@ -1149,7 +1173,7 @@ if (typeof module !== 'undefined') {
 
 
 // ===== Maintenance.gs =====
-// Heater maintenance by the vendor team: they log which parts they maintained each day and attach the
+// Heater maintenance by the RTG Vendor team: they log which parts they maintained each day and attach the
 // filled checklist; the RTG team verifies the log, and only then the parts become ready to issue again.
 
 var MLOG = { SUBMITTED: 'Submitted', VERIFIED: 'Verified', REJECTED: 'Rejected' };
@@ -1157,7 +1181,7 @@ var CHECKLIST_MAX_BYTES = 6 * 1024 * 1024;
 var CHECKLIST_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 function canLogMaintenance_(user) {
-  return user.Role === 'Admin' || user.Team === 'Vendor';
+  return user.Role === 'Admin' || user.Team === 'RTG Vendor';
 }
 
 // Folder in the owner's Google Drive for checklist files. Created on first use (or by setup).
@@ -1183,7 +1207,7 @@ function pendingLogIds_(logs) {
 // Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
-  if (!canLogMaintenance_(user)) throw new Error('You do not have permission for this.');
+  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
   var models = {}, pairs = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
@@ -1227,7 +1251,7 @@ function logMaintenance(user, d) {
 }
 
 function listMaintenanceLogs(user) {
-  if (!canLogMaintenance_(user) && user.Role !== 'Admin') throw new Error('You do not have permission for this.');
+  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
   var names = {};
@@ -1241,7 +1265,7 @@ function listMaintenanceLogs(user) {
 }
 
 function getChecklist(user, d) {
-  if (!canLogMaintenance_(user)) throw new Error('You do not have permission for this.');
+  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
   var l = findOne('MaintenanceLogs', 'LogNo', d.LogNo);
   if (!l || !l.ChecklistFileId) throw new Error('No checklist for this log.');
   var blob = DriveApp.getFileById(l.ChecklistFileId).getBlob();
@@ -1355,22 +1379,32 @@ function itemsTable_(items) {
 }
 
 // ---------- request ----------
+// FM gives the belt details (and the heater number if they know it); the RTG team chooses the heater when approving.
+// The store may also name the heater and parts straight away (ModelID + RequestedComponents).
 function raiseRequest(user, d) {
-  required_(d, [['ModelID', 'Heater'], ['ConveyorName', 'Conveyor name'], ['VendorTeam', 'Vendor team name'], ['VendorSupervisor', 'Vendor supervisor name'],
+  required_(d, [['ConveyorName', 'Conveyor name'], ['VendorTeam', 'Vendor team name'], ['VendorSupervisor', 'Vendor supervisor name'],
                 ['VendorEmployeeID', 'Vendor employee ID'], ['FMRepresentative', 'FM representative'], ['IssueDate', 'Date of issue'], ['ExpectedReturnDate', 'Expected return date']]);
   if (String(d.ExpectedReturnDate) < String(d.IssueDate)) throw new Error('Expected return date cannot be before the issue date.');
-  var model = findOne('HeaterModels', 'ModelID', d.ModelID);
-  if (!model) throw new Error('Unknown heater model.');
-  var types = readTable('ComponentTypes').filter(function (t) { return t.ModelID === d.ModelID; });
-  var names = types.map(function (t) { return t.ComponentName; });
-  var comps = parseList_(d.RequestedComponents).filter(function (c) { return Number(c.qty) > 0; });
-  if (!comps.length) throw new Error('Choose at least one component.');
-  comps.forEach(function (c) { if (names.indexOf(c.name) < 0) throw new Error('"' + c.name + '" is not part of this heater.'); });
+  var model = null, comps = [];
+  if (d.ModelID) {
+    model = findOne('HeaterModels', 'ModelID', d.ModelID);
+    if (!model) throw new Error('Unknown heater model.');
+    var names = readTable('ComponentTypes').filter(function (t) { return t.ModelID === d.ModelID; }).map(function (t) { return t.ComponentName; });
+    comps = parseList_(d.RequestedComponents).filter(function (c) { return Number(c.qty) > 0; });
+    if (!comps.length) throw new Error('Choose at least one component.');
+    comps.forEach(function (c) { if (names.indexOf(c.name) < 0) throw new Error('"' + c.name + '" is not part of this heater.'); });
+  } else {
+    required_(d, [['BeltWidth_mm', 'Belt width'], ['BeltRating_Nmm', 'Belt rating']]);
+    if (!(Number(d.BeltWidth_mm) > 0)) throw new Error('Belt width must be a number in mm.');
+    if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) throw new Error('Type the belt rating as a number like 1000, or ST1000 for a steel-cord belt.');
+    if (d.Plies !== undefined && d.Plies !== '' && !(Number(d.Plies) > 0)) throw new Error('Plies must be a number.');
+  }
 
   var no = nextNumber('request', 'RTGH');
   var row = {
-    RequestNo: no, RaisedBy: user.UserID, RaisedOn: new Date(), ModelID: d.ModelID, ConveyorName: d.ConveyorName,
-    BeltWidth_mm: d.BeltWidth_mm || '', BeltRating_Nmm: d.BeltRating_Nmm || '', VendorTeam: d.VendorTeam, VendorSupervisor: d.VendorSupervisor,
+    RequestNo: no, RaisedBy: user.UserID, RaisedOn: new Date(), ModelID: model ? model.ModelID : '', ConveyorName: d.ConveyorName,
+    BeltWidth_mm: d.BeltWidth_mm || '', BeltRating_Nmm: String(d.BeltRating_Nmm || '').replace(/\s+/g, '').toUpperCase(), Plies: d.Plies || '',
+    HeaterAsked: String(d.HeaterAsked || '').trim(), VendorTeam: d.VendorTeam, VendorSupervisor: d.VendorSupervisor,
     VendorEmployeeID: d.VendorEmployeeID, FMRepresentative: d.FMRepresentative, FMEmail: d.FMEmail || '', IssueDate: d.IssueDate,
     ExpectedReturnDate: d.ExpectedReturnDate, RequestedComponents: JSON.stringify(comps.map(function (c) { return { name: c.name, qty: Number(c.qty) }; })),
     Status: REQ.PENDING
@@ -1378,10 +1412,23 @@ function raiseRequest(user, d) {
   appendRow('Requests', row);
   audit(user.UserID, 'raiseRequest', no);
   queueMail('NEW_REQUEST', no, getSetting('RTGTeamMail', ''), '', 'New heater request ' + no,
-    mailHtml_('New heater request ' + no, [['Heater', model.ModelName], ['Conveyor', d.ConveyorName], ['Vendor team', d.VendorTeam],
+    mailHtml_('New heater request ' + no, [['Heater', model ? model.ModelName : (row.HeaterAsked ? row.HeaterAsked + ' (asked by FM)' : 'To be chosen by RTG')],
+      ['Belt', beltText_(row)], ['Conveyor', d.ConveyorName], ['Vendor team', d.VendorTeam],
       ['FM representative', d.FMRepresentative], ['Issue date', d.IssueDate], ['Expected return', d.ExpectedReturnDate], ['Raised by', user.Name]],
-      'Please approve or reject it in the app.'));
+      model ? 'Please approve or reject it in the app.' : 'Please choose a heater for this belt and approve, or reject it, in the app.'));
   return { RequestNo: no };
+}
+
+// "1200 mm · 1000 N/mm · 4 plies"
+function beltText_(r) {
+  return [r.BeltWidth_mm ? r.BeltWidth_mm + ' mm' : '', r.BeltRating_Nmm ? r.BeltRating_Nmm + ' N/mm' : '', r.Plies ? r.Plies + ' plies' : '']
+    .filter(String).join(' · ');
+}
+
+// A full set of the heater's parts, as asked for when the RTG team picks the heater.
+function fullSet_(modelId) {
+  return readTable('ComponentTypes').filter(function (t) { return t.ModelID === modelId; })
+    .map(function (t) { return { name: t.ComponentName, qty: Number(t.QtyPerSet) || 1 }; });
 }
 
 function listRequests() {
@@ -1397,7 +1444,7 @@ function listRequests() {
     var status = tk ? tk.Status : r.Status;
     var expected = tk ? tk.ExpectedReturnDate : r.ExpectedReturnDate;
     return {
-      RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID, ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
+      RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID || '', Belt: beltText_(r), HeaterAsked: r.HeaterAsked || '', ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
       VendorTeam: r.VendorTeam, FMRepresentative: r.FMRepresentative, RaisedOn: r.RaisedOn, IssueDate: r.IssueDate, ExpectedReturnDate: expected,
       Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo]
     };
@@ -1418,7 +1465,19 @@ function getRequest(user, d) {
   r.RequestedComponents = parseList_(r.RequestedComponents);
   var out = { request: r, ticket: tk, items: items, issues: issues, transfers: transfers, model: model, raisedByName: raiser ? raiser.Name : r.RaisedBy,
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
-  if (user.Role === 'Admin' && tk && tk.Status === TKT.AWAITING) {
+  out.belt = beltText_(r);
+  // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
+  if (isStoreUser_(user) && r.Status === REQ.PENDING) {
+    var hd = heaterData_();
+    var found = r.BeltWidth_mm ? heaterSearch(hd, r.BeltWidth_mm, r.BeltRating_Nmm, r.Plies) : { suitable: [] };
+    var stats = {};
+    found.suitable.forEach(function (x) { stats[x.model.ModelID] = x; });
+    out.heaterOptions = hd.models.map(function (m) {
+      var x = stats[m.ModelID];
+      return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
+    }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
+  }
+  if (isStoreUser_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
     out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
@@ -1438,13 +1497,20 @@ function decideRequest(admin, d) {
     updateWhere('Requests', 'RequestNo', r.RequestNo, { Status: REQ.REJECTED, DecidedBy: admin.UserID, DecidedOn: new Date(), RejectReason: d.reason });
     audit(admin.UserID, 'rejectRequest', r.RequestNo, { reason: d.reason });
     queueMail('REQUEST_REJECTED', r.RequestNo, contacts_(r), rejectCC, 'Heater request ' + r.RequestNo + ' rejected by RTG team',
-      mailHtml_('Request ' + r.RequestNo + ' has been rejected by the RTG team', [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Vendor team', r.VendorTeam], ['Reason', d.reason]]));
+      mailHtml_('Request ' + r.RequestNo + ' has been rejected by the RTG team', [['Heater', model.ModelName || beltText_(r)], ['Conveyor', r.ConveyorName], ['Vendor team', r.VendorTeam], ['Reason', d.reason]]));
     return { status: REQ.REJECTED };
   }
   if (d.decision !== 'approve') throw new Error('Unknown decision.');
+  var modelId = d.ModelID || r.ModelID;
+  if (!modelId) throw new Error('Choose the heater to give for this belt.');
+  model = findOne('HeaterModels', 'ModelID', modelId);
+  if (!model) throw new Error('Unknown heater model.');
+  var patch = { Status: REQ.APPROVED, DecidedBy: admin.UserID, DecidedOn: new Date() };
+  if (modelId !== r.ModelID) { patch.ModelID = modelId; patch.RequestedComponents = JSON.stringify(fullSet_(modelId)); }
   var ticketNo = nextNumber('ticket', 'HEATER_');
-  updateWhere('Requests', 'RequestNo', r.RequestNo, { Status: REQ.APPROVED, DecidedBy: admin.UserID, DecidedOn: new Date(), TicketNo: ticketNo });
-  appendRow('Tickets', { TicketNo: ticketNo, RequestNo: r.RequestNo, ModelID: r.ModelID, Status: TKT.AWAITING, ConveyorName: r.ConveyorName, ExpectedReturnDate: r.ExpectedReturnDate });
+  patch.TicketNo = ticketNo;
+  updateWhere('Requests', 'RequestNo', r.RequestNo, patch);
+  appendRow('Tickets', { TicketNo: ticketNo, RequestNo: r.RequestNo, ModelID: modelId, Status: TKT.AWAITING, ConveyorName: r.ConveyorName, ExpectedReturnDate: r.ExpectedReturnDate });
   audit(admin.UserID, 'approveRequest', r.RequestNo, { ticket: ticketNo });
   queueMail('REQUEST_APPROVED', r.RequestNo, contacts_(r), '', 'Heater request ' + r.RequestNo + ' approved: ticket ' + ticketNo,
     mailHtml_('Request ' + r.RequestNo + ' is approved. Your ticket number is ' + ticketNo, [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Expected return', r.ExpectedReturnDate]],
@@ -1675,20 +1741,20 @@ function dashboard(user) {
   var reqs = listRequests();
   var transfers = user ? listTransfers(user) : [];
   function count(fn) { return reqs.filter(fn).length; }
-  var comps = readTable('Components');
+  var comps = readTable('Components'), store = !user || isStoreUser_(user);
   return {
     pending: count(function (r) { return r.Status === REQ.PENDING; }),
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
-    maintenanceDue: comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
-    missing: comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
+    maintenanceDue: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
+    missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
     transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
     transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length,
     maintenanceToVerify: readTable('MaintenanceLogs').filter(function (l) { return l.Status === 'Submitted'; }).length,
-    consumablePending: readTable('ConsumableRequests').filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length,
-    consumableAlerts: listConsumables().filter(function (c) { return c.lowStock || c.expiringSoon || c.expiredQty > 0; }).length
+    consumablePending: listConsumableRequests(user).filter(function (r) { return r.Status === 'Pending' || r.Status === 'Approved'; }).length,
+    consumableAlerts: !store ? 0 : listConsumables().filter(function (c) { return c.lowStock || c.expiringSoon || c.expiredQty > 0; }).length
   };
 }
 
@@ -3918,7 +3984,9 @@ var SCHEMA = {
     "DecidedBy",
     "DecidedOn",
     "RejectReason",
-    "TicketNo"
+    "TicketNo",
+    "Plies",
+    "HeaterAsked"
   ],
   "Tickets": [
     "TicketNo",
@@ -4193,7 +4261,7 @@ function clearTestData() {
 
 // ===== Transfers.gs =====
 // Moving a deployed heater straight to another conveyor without bringing it back to the store.
-// Approval chain: RTG admin -> RTG HOD -> RTG Chief AND FM Chief (both, in either order).
+// Approval chain: RTG team -> RTG HOD. (Transfers raised before October 2026 may still wait for the RTG Chief and FM Chief.)
 
 var TRF = { RTG: 'Pending RTG', HOD: 'Pending HOD', CHIEFS: 'Pending Chiefs', APPROVED: 'Approved', REJECTED: 'Rejected', CANCELLED: 'Cancelled' };
 var TRF_DONE = [TRF.APPROVED, TRF.REJECTED, TRF.CANCELLED];
@@ -4205,7 +4273,8 @@ function approvalsFor_(transferNo) {
 
 // Which stage this user may decide right now, or null.
 function stageFor_(user, t, approvals) {
-  if (t.Status === TRF.RTG && user.Role === 'Admin') return 'RTG';
+  // The HOD has their own stage, so one person can't give both approvals.
+  if (t.Status === TRF.RTG && isRtgTeam_(user) && user.Role !== 'HOD') return 'RTG';
   if (t.Status === TRF.HOD && user.Role === 'HOD') return 'HOD';
   if (t.Status === TRF.CHIEFS && CHIEF_ROLES.indexOf(user.Role) >= 0 &&
       !approvals.some(function (a) { return a.Stage === user.Role; })) return user.Role;
@@ -4228,7 +4297,8 @@ function transferStages_(t, approvals) {
     var a = approvals.filter(function (x) { return x.Stage === stage; })[0];
     return { stage: stage, decision: a ? a.Decision : '', by: a ? a.ApproverUserID : '', on: a ? a.DecidedOn : '', comment: a ? a.Comment : '' };
   }
-  var stages = [st('RTG'), st('HOD'), st('RTG Chief'), st('FM Chief')];
+  var stages = [st('RTG'), st('HOD')];
+  if (t.Status === TRF.CHIEFS || approvals.some(function (a) { return CHIEF_ROLES.indexOf(a.Stage) >= 0; })) stages.push(st('RTG Chief'), st('FM Chief'));
   var waiting = [];
   if (t.Status === TRF.RTG) waiting = ['RTG team'];
   if (t.Status === TRF.HOD) waiting = ['RTG HOD'];
@@ -4288,7 +4358,7 @@ function decideTransfer(user, d) {
 
   var next = null;
   if (stage === 'RTG') next = TRF.HOD;
-  else if (stage === 'HOD') next = TRF.CHIEFS;
+  else if (stage === 'HOD') next = TRF.APPROVED;
   else {
     var done = approvals.filter(function (a) { return CHIEF_ROLES.indexOf(a.Stage) >= 0 && a.Decision === 'Approved'; }).length + 1;
     next = done >= CHIEF_ROLES.length ? TRF.APPROVED : TRF.CHIEFS;
@@ -4303,7 +4373,7 @@ function decideTransfer(user, d) {
     updateRows('Components', function (c) {
       return onSite[c.ComponentID] ? { CurrentConveyor: t.ToConveyor, JointsSinceMaintenance: (Number(c.JointsSinceMaintenance) || 0) + 1 } : null;
     });
-    queueMail('TRANSFER_APPROVED', t.TransferNo, fmTo, [getSetting('RTGTeamMail', ''), roleEmails_(['HOD', 'RTG Chief', 'FM Chief'])].filter(String).join(','),
+    queueMail('TRANSFER_APPROVED', t.TransferNo, fmTo, [getSetting('RTGTeamMail', ''), roleEmails_(['HOD'])].filter(String).join(','),
       'Transfer ' + t.TransferNo + ' approved: heater ' + t.TicketNo + ' may move to ' + t.ToConveyor,
       mailHtml_('Transfer ' + t.TransferNo + ' is fully approved', transferRows_(t), 'The heater may now be moved. Return it to the RTG Store by the new return date.'));
   } else if (next !== t.Status) {
@@ -4342,6 +4412,7 @@ function saveUser(admin, data) {
   if (!userId) throw new Error('User ID is required.');
   if (!data.Name) throw new Error('Name is required.');
   if (ROLES.indexOf(data.Role) < 0) throw new Error('Unknown role: ' + data.Role);
+  if (data.Team && TEAMS.indexOf(data.Team) < 0) throw new Error('Unknown team: ' + data.Team);
 
   var fields = { Name: data.Name, EmployeeID: data.EmployeeID || '', Email: data.Email || '', Role: data.Role,
                  Team: data.Team || '', Department: data.Department || '', Phone: data.Phone || '',

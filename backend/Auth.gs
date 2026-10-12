@@ -3,6 +3,18 @@
 var SESSION_SECONDS = 6 * 60 * 60; // Apps Script cache maximum
 var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
+// FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
+// RTG: the store team. RTG Vendor: the store's own contractor, who also maintains the heaters and keeps the stock.
+var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
+
+// Who may do what. Admins may do everything.
+function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
+// Sees the heater and consumable stock, and issues and takes back at the store.
+function isStoreUser_(u) { return isAdminUser_(u) || (!!u && (u.Team === 'RTG' || u.Team === 'RTG Vendor')); }
+// Approves and rejects requests and closes issues.
+function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
+// Changes stock: consumable entries and uploads, and heater part maintenance, repair, scrap and found.
+function canUpdateStock_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;
@@ -58,13 +70,13 @@ function isActive_(u) {
 }
 
 // Returns the logged-in user, or throws. Pass roles to restrict an action.
-function requireUser(token, roles, teams) {
+function requireUser(token, roles) {
   var cache = CacheService.getScriptCache();
   var userId = token && cache.get('sess:' + token);
   if (!userId) throw new AuthError('Session expired. Please log in again.');
   var u = findOne('Users', 'UserID', userId);
   if (!u || !isActive_(u)) throw new AuthError('Account disabled.');
-  if (roles && roles.indexOf(u.Role) < 0 && !(teams && teams.indexOf(u.Team) >= 0)) throw new Error('You do not have permission for this.');
+  if (roles && roles.indexOf(u.Role) < 0) throw new Error('You do not have permission for this.');
   cache.put('sess:' + token, userId, SESSION_SECONDS); // sliding expiry
   return u;
 }
