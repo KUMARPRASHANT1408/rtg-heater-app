@@ -225,12 +225,18 @@ function raiseConsumableRequest(user, d) {
   return { RequestNo: no };
 }
 
-function listConsumableRequests() {
+// Names only, for people who ask for material but don't see the stock.
+function consumableItems() {
+  return readTable('Consumables').map(function (i) { return { ItemID: i.ItemID, ItemName: i.ItemName, Unit: i.Unit }; });
+}
+
+// The store sees every request; anyone else sees the ones they raised.
+function listConsumableRequests(user) {
   var items = {};
   readTable('Consumables').forEach(function (i) { items[i.ItemID] = i; });
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
-  return readTable('ConsumableRequests').map(function (r) {
+  return readTable('ConsumableRequests').filter(function (r) { return !user || isStoreUser_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
     var it = items[r.ItemID] || {};
     return Object.assign({}, r, { ItemName: it.ItemName || r.ItemID, Unit: it.Unit || '', RaisedByName: users[r.RaisedBy] || r.RaisedBy });
   }).reverse();

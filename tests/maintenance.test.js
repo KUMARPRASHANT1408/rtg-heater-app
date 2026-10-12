@@ -11,14 +11,14 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   const call = (action, data, token) => JSON.parse(JSON.stringify(ctx.handle({ action, data, token })));
   const ok = (action, data, token) => { const r = call(action, data, token); assert.ok(r.ok, action + ': ' + r.error); return r.data; };
   const admin = ok('login', { userId: 'admin', password: temp }).token;
-  const vpw = ok('saveUser', { UserID: 'vm1', Name: 'Vendor Maint', Role: 'Local', Team: 'Vendor', Email: 'vm1@x.com' }, admin).tempPassword;
+  const vpw = ok('saveUser', { UserID: 'vm1', Name: 'Vendor Maint', Role: 'Local', Team: 'RTG Vendor', Email: 'vm1@x.com' }, admin).tempPassword;
   const vendor = ok('login', { userId: 'vm1', password: vpw }).token;
   const fpw = ok('saveUser', { UserID: 'fm1', Name: 'FM', Role: 'Local', Team: 'FM' }, admin).tempPassword;
   const fm = ok('login', { userId: 'fm1', password: fpw }).token;
 
   // Two parts of HM-02 set 1 come back needing maintenance; the HM-01 bag is damaged too.
   ['HM-02-S1-TP', 'HM-02-S1-BP', 'HM-01-S3-PB'].forEach((id) => ctx.updateWhere('Components', 'ComponentID', id, { MaintenanceStatus: 'Due' }));
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 3);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 3);
   assert.match(call('maintenanceDue', {}, fm).error, /permission/);
   const listed = ok('maintenanceDue', {}, vendor);
   assert.deepStrictEqual(listed.filter((c) => c.due).map((c) => c.ComponentID).sort(), ['HM-01-S3-PB', 'HM-02-S1-BP', 'HM-02-S1-TP']);
@@ -40,10 +40,10 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   assert.strictEqual(Buffer.from(cl.data, 'base64').toString(), 'fake jpeg');
   assert.strictEqual(ok('dashboard', {}, admin).maintenanceToVerify, 1);
   // Not ready until RTG verifies.
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 3);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 3);
   assert.match(call('verifyMaintenance', { LogNo, decision: 'approve' }, vendor).error, /permission/);
   ok('verifyMaintenance', { LogNo, decision: 'approve' }, admin);
-  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, fm).totals.suitableAvailable, 4);
+  assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 4);
   assert.strictEqual(ok('listMaintenanceLogs', {}, vendor)[0].Status, 'Verified');
 
   // Damaged bag: repaired during maintenance, but RTG rejects the first log.

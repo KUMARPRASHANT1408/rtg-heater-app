@@ -55,7 +55,11 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   assert.ok((await relay('relayRegister')).ok);
   assert.match((await relay('relayRegister', {}, 'x'.repeat(40))).error, /different Apps Script/);
   assert.match((await relay('relayMail', {}, 'x'.repeat(40))).error, /not accepted/);
-  const imp = await relay('relayImport', { order: s.order, tabs: s.tabs });
+  // Data copied before the last two Requests columns existed: the server adds them itself.
+  const reqTab = s.tabs.Requests;
+  assert.deepStrictEqual(reqTab[0].slice(-2), ['Plies', 'HeaterAsked']);
+  const oldTabs = Object.assign({}, s.tabs, { Requests: reqTab.map((r) => r.slice(0, -2)) });
+  const imp = await relay('relayImport', { order: s.order, tabs: oldTabs });
   assert.ok(imp.ok, imp.error);
   assert.match((await relay('relayImport', { order: s.order, tabs: s.tabs })).error, /already copied/);
 
@@ -82,7 +86,7 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   await login('admin', 'admin', s.temp);
   const fmUser = await both('saveUser', { UserID: 'fm01', Name: 'FM One', Role: 'Local', Team: 'FM', Email: 'fm01@company.com' }, 'admin');
   await login('fm', 'fm01', (side) => fmUser[side].data.tempPassword);
-  const vUser = await both('saveUser', { UserID: 'vm1', Name: 'Vendor', Role: 'Local', Team: 'Vendor', Email: 'v@x.com' }, 'admin');
+  const vUser = await both('saveUser', { UserID: 'vm1', Name: 'Vendor', Role: 'Local', Team: 'RTG Vendor', Email: 'v@x.com' }, 'admin');
   await login('vendor', 'vm1', (side) => vUser[side].data.tempPassword);
   await both('me', {}, 'fm');
   await both('lookups', {}, 'fm');
@@ -98,9 +102,19 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   const det = await both('getRequest', { no: 'HEATER_0001' }, 'admin');
   const picks = det.postgres.data.suggestion.picks;
   await both('issueTicket', { TicketNo: 'HEATER_0001', items: picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, 'admin');
-  await both('heaterSearch', { width: 1200, rating: 1250 }, 'fm', (r) => assert.strictEqual(r.data.totals.suitableDeployed, 1));
+  await both('heaterSearch', { width: 1200, rating: 1250 }, 'fm', (r) => assert.match(r.error, /permission/));
+  await both('heaterSearch', { width: 1200, rating: 1250 }, 'admin', (r) => assert.strictEqual(r.data.totals.suitableDeployed, 1));
   await both('dashboard', {}, 'admin');
   await both('listRequests', {}, 'fm');
+
+  // FM gives only the belt; the RTG team chooses the heater when approving.
+  const beltOnly = Object.assign({}, reqData, { ModelID: '', RequestedComponents: '', BeltWidth_mm: '1200', BeltRating_Nmm: '1250', Plies: '4', HeaterAsked: 'HM-02?' });
+  await both('raiseRequest', beltOnly, 'fm', (r) => assert.strictEqual(r.data.RequestNo, 'RTGH0002'));
+  await both('getRequest', { no: 'RTGH0002' }, 'fm', (r) => assert.strictEqual(r.data.heaterOptions, undefined));
+  await both('getRequest', { no: 'RTGH0002' }, 'admin', (r) => assert.ok(r.data.heaterOptions.some((o) => o.suitable)));
+  await both('decideRequest', { RequestNo: 'RTGH0002', decision: 'approve' }, 'admin', (r) => assert.match(r.error, /Choose the heater/));
+  await both('decideRequest', { RequestNo: 'RTGH0002', decision: 'approve', ModelID: 'HM-03' }, 'admin', (r) => assert.strictEqual(r.data.TicketNo, 'HEATER_0002'));
+  await both('getRequest', { no: 'HEATER_0002' }, 'admin', (r) => assert.strictEqual(r.data.request.Plies, '4'));
 
   const items = det.postgres.data.items.length ? det.postgres.data.items : (await both('getRequest', { no: 'HEATER_0001' }, 'admin')).postgres.data.items;
   const result = (i) => (i.ComponentName === 'Pressure bag' ? 'Damaged' : i.ComponentID.endsWith('PC2') ? 'Not returned' : 'OK');
@@ -124,8 +138,10 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   // Consumables and transfers.
   await both('stockEntry', { ItemID: 'C02', Type: 'Receipt', Qty: 5, BatchNo: 'X1', ExpiryDate: '2099-12-31' }, 'admin');
   await both('stockEntry', { ItemID: 'C02', Type: 'Issue', Qty: 30, Department: 'FM' }, 'admin', (r) => assert.match(r.error, /Only 5/));
-  await both('listConsumables', {}, 'fm');
-  await both('consumableDetail', { ItemID: 'C02' }, 'fm');
+  await both('listConsumables', {}, 'fm', (r) => assert.match(r.error, /permission/));
+  await both('listConsumables', {}, 'admin');
+  await both('consumableDetail', { ItemID: 'C02' }, 'admin');
+  await both('consumableItems', {}, 'fm');
   await both('listTransfers', {}, 'fm');
 
   // Users: password change, delete.

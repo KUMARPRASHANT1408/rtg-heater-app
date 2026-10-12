@@ -18,7 +18,7 @@ function app() {
   const pw = ok('saveUser', { UserID: 'fm01', Name: 'FM One', Role: 'Local', Team: 'FM', Email: 'fm01@company.com' }, admin).tempPassword;
   const fm = ok('login', { userId: 'fm01', password: pw }).token;
   const notes = () => ctx.__mails.filter((m) => m.subject.startsWith('[RTG-NOTIFY]')).map((m) => JSON.parse(m.body));
-  const item = (id) => ok('listConsumables', {}, fm).find((c) => c.ItemID === id);
+  const item = (id) => ok('listConsumables', {}, admin).find((c) => c.ItemID === id);
   return { ctx, call, ok, admin, fm, notes, item };
 }
 
@@ -46,7 +46,7 @@ test('receipt, issue first-expiring-first, adjustment and validation', () => {
   assert.match(call('stockEntry', { ItemID: 'C02', Type: 'Issue', Qty: 30, Department: 'FM Sinter' }, admin).error, /Only 9/);
   // 6 = 4 from X0 (expires first) + 2 from X1.
   ok('stockEntry', { ItemID: 'C02', Type: 'Issue', Qty: 6, Department: 'FM Sinter' }, admin);
-  const det = ok('consumableDetail', { ItemID: 'C02' }, fm);
+  const det = ok('consumableDetail', { ItemID: 'C02' }, admin);
   assert.deepStrictEqual(det.batches.map((b) => [b.BatchNo, b.Qty]), [['X1', 3]]);
   assert.deepStrictEqual(det.byDepartment, [{ department: 'FM Sinter', qty: 6 }]);
   assert.strictEqual(det.monthly.length, 12);

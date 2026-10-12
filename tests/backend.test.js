@@ -52,7 +52,9 @@ test('roles: local user cannot manage users, admin can', () => {
   assert.ok(created.ok, created.error);
   const local = call('login', { userId: 'fm01', password: created.data.tempPassword }).data.token;
   assert.match(call('listUsers', {}, local).error, /permission/);
-  assert.ok(call('heaterSearch', { width: 1200, rating: 1250, plies: 4 }, local).ok);
+  // FM asks for heaters but does not see the store's stock.
+  assert.match(call('heaterSearch', { width: 1200, rating: 1250, plies: 4 }, local).error, /permission/);
+  assert.ok(call('heaterSearch', { width: 1200, rating: 1250, plies: 4 }, admin).ok);
   assert.strictEqual(call('listUsers', {}, admin).data.length, 2);
   // Promote, then disable.
   assert.ok(call('saveUser', { UserID: 'fm01', Name: 'FM Person', Role: 'Admin', Team: 'FM' }, admin).ok);

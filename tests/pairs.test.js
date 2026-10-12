@@ -49,7 +49,7 @@ function app() {
     return TicketNo;
   };
   const stats = (w, r, p) => {
-    const res = ok('heaterSearch', { width: w, rating: r, plies: p }, fm);
+    const res = ok('heaterSearch', { width: w, rating: r, plies: p }, admin);
     const by = {};
     res.suitable.forEach((s) => { by[s.model.ModelID] = s; });
     return { res, by };
