@@ -11,7 +11,7 @@
   // Any change (approve, issue, save...) wipes the saved copies so nobody acts on old data.
   var READS = { dashboard: 1, lookups: 1, heaterSearch: 1, components: 1, listUsers: 1, listRequests: 1, getRequest: 1,
                 listTransfers: 1, listConsumables: 1, consumableDetail: 1, listConsumableRequests: 1, maintenanceDue: 1,
-                listMaintenanceLogs: 1, storageInfo: 1, masterList: 1, adminLog: 1, consumableItems: 1 };
+                listMaintenanceLogs: 1, storageInfo: 1, masterList: 1, adminLog: 1, consumableItems: 1, heaterGuide: 1, listHeaters: 1 };
   var CACHE_KEY = 'rtg.cache', USER_KEY = 'rtg.user', FRESH_MS = 15000, MAX_ENTRIES = 40;
   var cache = loadCache(), inflight = {};
 

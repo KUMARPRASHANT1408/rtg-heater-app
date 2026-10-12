@@ -4,7 +4,7 @@
 var ADMIN = ['Admin'];
 var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
                  'listConsumables', 'consumableDetail', 'consumableItems', 'listConsumableRequests',
-                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
+                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog', 'heaterGuide', 'listHeaters'];
 
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
@@ -52,6 +52,10 @@ var ACTIONS = {
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
   masterDelete:             { roles: ADMIN, run: function (u, d) { return apiMasterDelete(u, d); } },
+  heaterGuide:              { roles: ADMIN, run: function () { return apiHeaterGuide(); } },
+  saveHeaterGuide:          { roles: ADMIN, run: function (u, d) { return apiSaveHeaterGuide(u, d); } },
+  listHeaters:              { roles: ADMIN, run: function () { return apiListHeaters(); } },
+  addHeater:                { roles: ADMIN, run: function (u, d) { return apiAddHeater(u, d); } },
   adminLog:                 { roles: ADMIN, run: function (u, d) { return apiLog(d); } },
   clearTestData:            { roles: ADMIN, run: function (u) { clearTestData(); audit(u.UserID, 'clearTestData'); return { ok: true }; } }
 };

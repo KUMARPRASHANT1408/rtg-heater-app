@@ -61,7 +61,8 @@ function raiseRequest(user, d) {
   } else {
     required_(d, [['BeltWidth_mm', 'Belt width'], ['BeltRating_Nmm', 'Belt rating']]);
     if (!(Number(d.BeltWidth_mm) > 0)) throw new Error('Belt width must be a number in mm.');
-    if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) throw new Error('Type the belt rating as a number like 1000, or ST1000 for a steel-cord belt.');
+    if (!normRating(d.BeltRating_Nmm)) throw new Error('Type the belt rating as a number like 1000, or ST1000 (ST-1600 where RTG writes it so) for a steel-cord belt.');
+    if (/^ST/.test(normRating(d.BeltRating_Nmm))) d.Plies = '';
     if (d.Plies !== undefined && d.Plies !== '' && !(Number(d.Plies) > 0)) throw new Error('Plies must be a number.');
   }
 

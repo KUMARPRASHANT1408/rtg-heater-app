@@ -150,7 +150,9 @@ test('selection guide decides suitable heaters when it has rows', () => {
   const r = call('heaterSearch', { width: 1200, rating: 1250, plies: 4 }, t).data;
   // The guide overrides the width ranges: HM-02 covers 1200 mm by range but is not in the guide row.
   assert.deepStrictEqual(r.suitable.map((s) => s.model.ModelID).sort(), ['HM-01', 'HM-03']);
-  assert.deepStrictEqual(call('heaterSearch', { width: 2000, rating: 1000 }, t).data.suitable.map((s) => s.model.ModelID), ['HM-02']);
+  assert.deepStrictEqual(call('heaterSearch', { width: 2000, rating: 'ST1000' }, t).data.suitable.map((s) => s.model.ModelID), ['HM-02']);
+  // A plain number is a fabric belt, so it does not pick the steel-cord row.
+  assert.strictEqual(call('heaterSearch', { width: 2000, rating: 1000 }, t).data.suitable.length, 0);
   const none = call('heaterSearch', { width: 1200, rating: 630, plies: 4 }, t).data;
   assert.strictEqual(none.suitable.length, 0);
   assert.deepStrictEqual(none.guide.optionsForWidth, ['1250/4']);
