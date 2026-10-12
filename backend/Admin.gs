@@ -21,7 +21,28 @@ function apiMasterList(d) {
   var t = masterTab_(d.tab);
   var rows = readTable(d.tab);
   if (d.tab === 'Settings') rows = rows.filter(function (r) { return HIDDEN_SETTINGS.indexOf(r.Key) < 0; });
-  return { tab: d.tab, key: t.key, columns: SCHEMA[d.tab], fixed: t.fixed || null, rows: rows };
+  var out = { tab: d.tab, key: t.key, columns: SCHEMA[d.tab], fixed: t.fixed || null, rows: rows };
+  if (d.tab === 'Conveyors') out.heaters = conveyorHeaters_(rows);
+  return out;
+}
+
+// For each conveyor, the heaters the selection guide gives for its belt (or the models' ranges when there is no guide).
+function conveyorHeaters_(rows) {
+  var guide = readTable('HeaterSelection'), models = readTable('HeaterModels'), out = {};
+  rows.forEach(function (c) {
+    var w = Number(c.BeltWidth_mm), ids = [];
+    if (w > 0 && String(c.BeltRating_Nmm).trim() !== '') {
+      if (guide.length) {
+        guideMatches(guide, w, String(c.BeltRating_Nmm), Number(c.Plies) || 0).forEach(function (g) {
+          String(g.HeaterIDs || '').split(/[,;\n]/).forEach(function (x) { x = x.trim(); if (x && ids.indexOf(x) < 0) ids.push(x); });
+        });
+      } else {
+        ids = models.filter(function (m) { return isSuitable(m, w, ratingNum_(c.BeltRating_Nmm), Number(c.Plies) || 0); }).map(function (m) { return m.ModelID; });
+      }
+    }
+    out[c.ConveyorName] = ids;
+  });
+  return out;
 }
 
 // Adds or updates rows by their key. d.rows: [{col: value}], d.originalKey: set when one row is renamed.

@@ -85,3 +85,25 @@ test('conveyors and requests take steel-cord ratings without plies', () => {
   assert.strictEqual(r.belt, '1400 mm · ST-1600 N/mm');
   assert.match(call('raiseRequest', Object.assign({}, req, { BeltRating_Nmm: 'ST/1600' }), fm).error, /belt rating/);
 });
+
+test('the conveyor list shows the guide heaters for each belt and flags belts with none', () => {
+  const { ok, admin } = app();
+  ok('saveHeaterGuide', { rows: [
+    { BeltWidth_mm: '1400', BeltRating: 'ST1600', HeaterIDs: 'HM-02, HM-03' },
+    { BeltWidth_mm: '1400', BeltRating: 'ST-1600', HeaterIDs: 'HM-02' },
+    { BeltWidth_mm: '1200', BeltRating: '1000/4', HeaterIDs: 'HM-01' }] }, admin);
+  ok('masterSave', { tab: 'Conveyors', rows: [
+    { ConveyorName: 'A', BeltWidth_mm: '1400', BeltRating_Nmm: 'ST-1600' },
+    { ConveyorName: 'B', BeltWidth_mm: '1400', BeltRating_Nmm: 'ST1600' },
+    { ConveyorName: 'C', BeltWidth_mm: '1200', BeltRating_Nmm: '1000', Plies: '4' },
+    { ConveyorName: 'D', BeltWidth_mm: '1200', BeltRating_Nmm: '1000', Plies: '5' },
+    { ConveyorName: 'E', BeltWidth_mm: '1600', BeltRating_Nmm: 'ST1600' },
+    { ConveyorName: 'F', BeltWidth_mm: '', BeltRating_Nmm: '' }] }, admin);
+  const h = ok('masterList', { tab: 'Conveyors' }, admin).heaters;
+  assert.deepStrictEqual(h.A, ['HM-02']);
+  assert.deepStrictEqual(h.B, ['HM-02', 'HM-03']);
+  assert.deepStrictEqual(h.C, ['HM-01']);
+  assert.deepStrictEqual(h.D, [], 'plies must match');
+  assert.deepStrictEqual(h.E, [], 'width not in the guide');
+  assert.deepStrictEqual(h.F, [], 'no belt details');
+});
