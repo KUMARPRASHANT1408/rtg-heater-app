@@ -1,13 +1,9 @@
-// Heater maintenance by the RTG Vendor team: they log which parts they maintained each day and attach the
+// Heater maintenance by the RTG team: they log which parts they maintained each day and attach the
 // filled checklist; the RTG team verifies the log, and only then the parts become ready to issue again.
 
 var MLOG = { SUBMITTED: 'Submitted', VERIFIED: 'Verified', REJECTED: 'Rejected' };
 var CHECKLIST_MAX_BYTES = 6 * 1024 * 1024;
 var CHECKLIST_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-
-function canLogMaintenance_(user) {
-  return user.Role === 'Admin' || user.Team === 'RTG Vendor';
-}
 
 // Folder in the owner's Google Drive for checklist files. Created on first use (or by setup).
 function checklistFolder_() {
@@ -32,7 +28,7 @@ function pendingLogIds_(logs) {
 // Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var models = {}, pairs = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
@@ -44,7 +40,7 @@ function maintenanceDue(user) {
 }
 
 function logMaintenance(user, d) {
-  if (!canLogMaintenance_(user)) throw new Error('Only the maintenance vendor team can log maintenance.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
   required_(d, [['WorkDone', 'Work done']]);
@@ -76,7 +72,7 @@ function logMaintenance(user, d) {
 }
 
 function listMaintenanceLogs(user) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
   var names = {};
@@ -90,7 +86,7 @@ function listMaintenanceLogs(user) {
 }
 
 function getChecklist(user, d) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var l = findOne('MaintenanceLogs', 'LogNo', d.LogNo);
   if (!l || !l.ChecklistFileId) throw new Error('No checklist for this log.');
   var blob = DriveApp.getFileById(l.ChecklistFileId).getBlob();

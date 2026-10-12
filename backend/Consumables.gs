@@ -236,7 +236,7 @@ function listConsumableRequests(user) {
   readTable('Consumables').forEach(function (i) { items[i.ItemID] = i; });
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
-  return readTable('ConsumableRequests').filter(function (r) { return !user || isStoreUser_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
+  return readTable('ConsumableRequests').filter(function (r) { return !user || isRtgTeam_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
     var it = items[r.ItemID] || {};
     return Object.assign({}, r, { ItemName: it.ItemName || r.ItemID, Unit: it.Unit || '', RaisedByName: users[r.RaisedBy] || r.RaisedBy });
   }).reverse();
