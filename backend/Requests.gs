@@ -132,7 +132,7 @@ function getRequest(user, d) {
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
   out.belt = beltText_(r);
   // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
-  if (isStoreUser_(user) && r.Status === REQ.PENDING) {
+  if (isRtgTeam_(user) && r.Status === REQ.PENDING) {
     var hd = heaterData_();
     var found = r.BeltWidth_mm ? heaterSearch(hd, r.BeltWidth_mm, r.BeltRating_Nmm, r.Plies) : { suitable: [] };
     var stats = {};
@@ -142,7 +142,7 @@ function getRequest(user, d) {
       return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
     }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
   }
-  if (isStoreUser_(user) && tk && tk.Status === TKT.AWAITING) {
+  if (isRtgTeam_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
     out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
@@ -406,7 +406,7 @@ function dashboard(user) {
   var reqs = listRequests();
   var transfers = user ? listTransfers(user) : [];
   function count(fn) { return reqs.filter(fn).length; }
-  var comps = readTable('Components'), store = !user || isStoreUser_(user);
+  var comps = readTable('Components'), store = !user || isRtgTeam_(user);
   return {
     pending: count(function (r) { return r.Status === REQ.PENDING; }),
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),

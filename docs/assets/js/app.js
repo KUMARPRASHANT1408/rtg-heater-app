@@ -12,12 +12,10 @@
   }
   function $(sel, root) { return (root || document).querySelector(sel); }
   function isAdmin() { return state.user && state.user.Role === 'Admin'; }
-  // Teams: FM asks for heaters; Vendor (jointing contractors) asks for consumables; RTG runs the store and approves;
-  // RTG Vendor (the store's contractor) issues, maintains heaters and keeps the stock. Admins see and do everything.
+  // Teams: FM asks for heaters; Vendor (jointing contractors) asks for consumables; RTG runs the store: stock,
+  // approvals, issue and return, maintenance. Admins also get the admin pages.
   function team() { return (state.user && state.user.Team) || ''; }
-  function isStore() { return isAdmin() || team() === 'RTG' || team() === 'RTG Vendor'; }
   function isRtgTeam() { return isAdmin() || team() === 'RTG'; }
-  function canUpdateStock() { return isAdmin() || team() === 'RTG Vendor'; }
   function toast(msg) {
     var t = document.createElement('div');
     t.className = 'toast'; t.textContent = msg;
@@ -58,11 +56,11 @@
                  '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator,
                  '#/admin': renderAdmin };
   var ADMIN_ROUTES = ['#/users', '#/admin'];
-  // Pages for people outside the store. Everyone else (RTG, RTG Vendor, admins) has every page but the admin ones.
+  // Pages for people outside the store. The RTG team has every page but the admin ones.
   var FM_PAGES = ['#/home', '#/heaters', '#/requests', '#/request', '#/ticket', '#/transfers'];
   var VENDOR_PAGES = ['#/home', '#/consumables'];
   function allowedPage(hash) {
-    if (isStore()) return ADMIN_ROUTES.indexOf(hash) < 0 || isAdmin();
+    if (isRtgTeam()) return ADMIN_ROUTES.indexOf(hash) < 0 || isAdmin();
     return (team() === 'Vendor' ? VENDOR_PAGES : FM_PAGES).indexOf(hash) >= 0;
   }
 
@@ -93,7 +91,7 @@
     $('#who-name').textContent = state.user.Name;
     $('#who-role').textContent = state.user.Role;
     $('#nav').innerHTML = NAV.filter(function (n) { return allowedPage(n.hash); }).map(function (n) {
-      return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.hash === '#/heaters' && !isStore() ? 'Request a heater' : n.label) + '</a>';
+      return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.hash === '#/heaters' && !isRtgTeam() ? 'Request a heater' : n.label) + '</a>';
     }).join('');
   }
 
@@ -153,15 +151,15 @@
 
   function renderHome() {
     var tiles = [
-      isStore() ? { href: '#/heaters', ico: 'search', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' }
+      isRtgTeam() ? { href: '#/heaters', ico: 'search', title: 'Find a heater', text: 'Enter belt width and rating to see suitable heaters, what is available and where the rest are deployed.' }
         : { href: '#/heaters', ico: 'search', title: 'Request a heater', text: 'Give the belt width, rating and plies. The RTG team chooses the heater and you get the ticket number.' },
       { href: '#/requests', ico: 'requests', title: 'Requests & tickets', text: 'Track every request and ticket: pending, approved, on site, overdue or closed. Search by number.' },
       { href: '#/transfers', ico: 'transfer', title: 'Site transfers', text: 'Move a deployed heater to another conveyor with RTG team and HOD approval. See where each request is pending.' },
-      isStore() ? { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
+      isRtgTeam() ? { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
         : { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Ask the RTG Store for jointing material and follow your requests.' }
     ];
-    if (isStore()) {
-      tiles.splice(canMaintain() && !isAdmin() ? 0 : 3, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
+    if (isRtgTeam()) {
+      tiles.splice(3, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
       tiles.splice(1, 0, { href: '#/inventory', ico: 'inventory', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
     }
     tiles.push({ href: '#/calculator', ico: 'calculator', title: 'Joint calculator', text: 'Step length, joint length, platen size, pressure and cure time from the belt details.' });
@@ -189,7 +187,7 @@
         t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
       box.innerHTML = mine + heaterStats +
         (d.maintenanceToVerify && isRtgTeam() ? '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Maintenance logs to check</div><div class="value" style="color:var(--warn)">' + d.maintenanceToVerify + '</div></a>' : '') +
-        (d.consumablePending || team() === 'Vendor' ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">' + (isStore() ? 'Consumable requests' : 'My open consumable requests') + '</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
+        (d.consumablePending || team() === 'Vendor' ? '<a class="card stat tile" href="#/consumables?f=requests"><div class="label">' + (isRtgTeam() ? 'Consumable requests' : 'My open consumable requests') + '</div><div class="value" style="color:var(--warn)">' + d.consumablePending + '</div></a>' : '') +
         (d.consumableAlerts ? '<a class="card stat tile" href="#/consumables"><div class="label">Consumables low or expiring</div><div class="value" style="color:var(--bad)">' + d.consumableAlerts + '</div></a>' : '');
     }).catch(function () { box.remove(); });
   }
@@ -482,7 +480,7 @@
   }
 
   function renderHeaters() {
-    if (!isStore()) return renderNewRequest('', {});
+    if (!isRtgTeam()) return renderNewRequest('', {});
     var conv = (state.lookups && state.lookups.conveyors) || [];
     view.innerHTML =
       '<div class="page-head"><div><h1>Find a suitable heater</h1><p class="muted">Pick a conveyor or type the belt details.</p></div></div>' +
@@ -859,7 +857,7 @@
           (i.FMExplanation ? '<p class="small"><b>What happened (FM):</b> ' + esc(i.FMExplanation) + '</p>' : '') +
           (i.FMActionPlan ? '<p class="small"><b>Action FM will take:</b> ' + esc(i.FMActionPlan) + '</p>' : '') +
           (i.ClosingRemark ? '<p class="small"><b>RTG remark:</b> ' + esc(i.ClosingRemark) + '</p>' : '');
-        if (i.Status === 'Open' && !isStore() && fmCanAct(d)) {
+        if (i.Status === 'Open' && !isRtgTeam() && fmCanAct(d)) {
           body += '<form class="stack" data-explain="' + esc(i.IssueNo) + '"><label>What happened<textarea name="explanation" rows="2" required></textarea></label>' +
             '<label>What action you will take<textarea name="actionPlan" rows="2" required></textarea></label>' +
             '<div class="actions"><button class="btn" type="submit">Send explanation to RTG</button></div></form>';
@@ -876,7 +874,7 @@
     }
 
     html += transferSection(d, status);
-    if (isStore()) html += adminPanel(d, status, outstanding);
+    if (isRtgTeam()) html += adminPanel(d, status, outstanding);
     else html += fmReturnPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
@@ -904,7 +902,6 @@
   function adminPanel(d, status, outstanding) {
     var r = d.request;
     if (r.Status === 'Pending') {
-      if (!isRtgTeam()) return '<div class="card" style="margin-top:16px"><h2>Decision</h2><p class="muted">Waiting for the RTG team to choose the heater and approve.</p></div>';
       var opts = d.heaterOptions || [];
       var pick = r.ModelID || (opts.filter(function (o) { var a = String(r.HeaterAsked || '').trim().toLowerCase(); return a && (String(o.ModelName).toLowerCase() === a || String(o.ModelID).toLowerCase() === a); })[0] || {}).ModelID ||
         (opts.filter(function (o) { return o.suitable && o.availableSets > 0; })[0] || opts.filter(function (o) { return o.suitable; })[0] || {}).ModelID || '';
@@ -1176,7 +1173,7 @@
           return true;
         });
         $('#inv-body').innerHTML = list.map(function (c) {
-          var selectable = canUpdateStock() && (c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c)));
+          var selectable = (c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c)));
           return '<tr><td>' + (selectable ? '<input type="checkbox" data-sel="' + esc(c.ComponentID) + '" style="min-height:auto">' : '') + '</td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(name[c.ModelID] || c.ModelID) + '</td><td>' + esc(c.SetNo) + '</td><td>' + esc(c.ComponentName) +
             (c.Remarks ? '<div class="small muted">' + esc(c.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(c.Qty) + '</td><td>' + pill(c) + '</td><td>' +
             esc(c.CurrentTicket) + (c.CurrentConveyor ? '<div class="small muted">' + esc(c.CurrentConveyor) + '</div>' : '') + '</td><td class="num">' + esc(c.JointsSinceMaintenance) + '</td></tr>';
@@ -1384,10 +1381,10 @@
   }
 
   function renderConsumables(arg, params) {
-    if (!isStore()) return renderConsumableAsk();
+    if (!isRtgTeam()) return renderConsumableAsk();
     var tab = params.f === 'requests' ? 'requests' : 'items';
     var head = '<div class="page-head"><div><h1>Consumables</h1><p class="muted">Jointing material in the RTG Store: stock, expiry, consumption and requests.</p></div>' +
-      '<div class="actions" style="margin:0">' + (canUpdateStock() ? '<button class="btn secondary" type="button" id="c-upload">Upload file</button><button class="btn secondary" type="button" id="c-entry">Update stock</button>' : '') +
+      '<div class="actions" style="margin:0">' + (isRtgTeam() ? '<button class="btn secondary" type="button" id="c-upload">Upload file</button><button class="btn secondary" type="button" id="c-entry">Update stock</button>' : '') +
       '<button class="btn" type="button" id="c-request">+ Request material</button></div></div>';
     view.innerHTML = '<div class="page-head"><div><h1>Consumables</h1></div></div><p class="muted">Loading…</p>';
     Promise.all([API.call('listConsumables'), API.call('listConsumableRequests')]).then(function (res) {
@@ -1431,8 +1428,7 @@
         html += '<div class="card"><div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Material</th><th class="num">Qty</th><th>Department / conveyor</th><th>Purpose</th><th>Status</th><th></th></tr></thead><tbody>' +
           (reqs.map(function (r) {
             var act = '';
-            if (isRtgTeam() && r.Status === 'Pending') act = '<button class="btn small" data-approve="' + esc(r.RequestNo) + '" type="button">Approve</button> <button class="btn small danger" data-reject="' + esc(r.RequestNo) + '" type="button">Reject</button>';
-            if (!isRtgTeam() && r.Status === 'Pending') act = '<span class="small muted">RTG team to approve</span>';
+            if (r.Status === 'Pending') act = '<button class="btn small" data-approve="' + esc(r.RequestNo) + '" type="button">Approve</button> <button class="btn small danger" data-reject="' + esc(r.RequestNo) + '" type="button">Reject</button>';
             if (r.Status === 'Approved') act = '<button class="btn small" data-issue="' + esc(r.RequestNo) + '" type="button">Issue</button>';
             return '<tr><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + ' · ' + esc(r.RaisedByName) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + esc(r.ItemName) + '</td><td class="num">' + qtyText(r.IssuedQty || r.Qty, r.Unit) + '</td>' +
               '<td>' + esc(r.Department) + '<div class="small muted">' + esc(r.Conveyor) + '</div></td><td>' + esc(r.Purpose) + (r.RejectReason ? '<div class="small" style="color:var(--bad)">Rejected: ' + esc(r.RejectReason) + '</div>' : '') +
@@ -1442,7 +1438,7 @@
       }
       view.innerHTML = html;
       $('#c-request').addEventListener('click', function () { openConsumableRequest(items, '', function () { location.hash = '#/consumables?f=requests'; reload(); }); });
-      if (canUpdateStock()) {
+      if (isRtgTeam()) {
         $('#c-entry').addEventListener('click', function () { openStockEntry(items, '', reload); });
         $('#c-upload').addEventListener('click', function () { openUpload(items, reload); });
       }
@@ -1481,7 +1477,7 @@
       var diff = s.SAPStock !== '' ? s.stock - Number(s.SAPStock) : null;
       view.innerHTML =
         '<div class="page-head"><div><h1>' + esc(s.ItemName) + '</h1><p class="muted">' + esc(s.Manufacturer || 'Manufacturer not set') + (s.Unit ? ' · unit: ' + esc(s.Unit) : '') + '</p></div>' +
-        '<div class="actions" style="margin:0"><a class="btn secondary" href="#/consumables">Back</a>' + (canUpdateStock() ? '<button class="btn secondary" id="i-edit" type="button">Edit details</button><button class="btn secondary" id="i-entry" type="button">Update stock</button>' : '') +
+        '<div class="actions" style="margin:0"><a class="btn secondary" href="#/consumables">Back</a>' + (isRtgTeam() ? '<button class="btn secondary" id="i-edit" type="button">Edit details</button><button class="btn secondary" id="i-entry" type="button">Update stock</button>' : '') +
         '<button class="btn" id="i-request" type="button">Request this</button></div></div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
         statTile('Usable stock', s.usableStock + (s.Unit ? ' ' + s.Unit : ''), true) +
@@ -1506,7 +1502,7 @@
         }).join('') || '<tr><td colspan="7" class="muted">Nothing yet.</td></tr>') + '</tbody></table></div></div>';
       drawMonthly(d.monthly, s.avgMonthly);
       $('#i-request').addEventListener('click', function () { openConsumableRequest(items, id, function () { location.hash = '#/consumables?f=requests'; }); });
-      if (canUpdateStock()) {
+      if (isRtgTeam()) {
         $('#i-entry').addEventListener('click', function () { openStockEntry(items, id, reload); });
         $('#i-edit').addEventListener('click', function () {
           formDialog('Edit ' + s.ItemName,
@@ -1545,7 +1541,6 @@
   }
 
   // ---------- heater maintenance (vendor logs, RTG verifies) ----------
-  function canMaintain() { return isAdmin() || team() === 'RTG Vendor'; }
   var MLOG_PILL = { Submitted: 'warn', Verified: 'good', Rejected: 'bad' };
 
   // Photos are shrunk before upload so they go up quickly over mobile data. PDFs go as they are.
@@ -1594,9 +1589,8 @@
   }
 
   function renderMaintenance(arg, params) {
-    if (!isStore()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and RTG Vendor.</p></div>'; return; }
-    var show = params.f || (canMaintain() && !isAdmin() ? 'log' : 'verify');
-    if (show === 'log' && !canMaintain()) show = 'verify';
+    if (!isRtgTeam()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team.</p></div>'; return; }
+    var show = params.f || (!isAdmin() ? 'log' : 'verify');
     view.innerHTML = '<div class="page-head"><div><h1>Heater maintenance</h1></div></div><p class="muted">Loading…</p>';
     Promise.all([API.call('maintenanceDue'), API.call('listMaintenanceLogs')]).then(function (res) {
       var due = res[0], logs = res[1];
@@ -1609,10 +1603,10 @@
       }
       var html = '<div class="page-head"><div><h1>Heater maintenance</h1><p class="muted">After every joint, parts come back "maintenance due". The vendor logs the maintenance with the checklist, RTG verifies, and the parts are ready to issue again.</p></div></div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
-        stat('Parts due after a joint', free.filter(function (c) { return c.due; }).length, 'warn', canMaintain() ? 'log' : 'all') +
+        stat('Parts due after a joint', free.filter(function (c) { return c.due; }).length, 'warn', 'log') +
         stat('Logs waiting for RTG check', waiting.length, 'warn', 'verify') +
         stat('Verified this month', logs.filter(function (l) { return l.Status === 'Verified' && String(l.VerifiedOn).slice(0, 7) === month; }).length, '', 'all') + '</div>' +
-        '<div class="chips">' + [canMaintain() ? ['log', 'Log maintenance'] : null, ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].filter(Boolean).map(function (c) {
+        '<div class="chips">' + [['log', 'Log maintenance'], ['verify', 'Waiting for RTG check' + (waiting.length ? ' (' + waiting.length + ')' : '')], ['all', 'All logs']].map(function (c) {
           return '<a class="chip' + (show === c[0] ? ' active' : '') + '" href="#/maintenance?f=' + c[0] + '">' + esc(c[1]) + '</a>';
         }).join('') + '</div>';
 
@@ -1660,7 +1654,7 @@
             '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + '</span>'; }).join('') + '</div>' +
             (l.RTGRemark ? '<p class="small"><b>RTG:</b> ' + esc(l.RTGRemark) + (l.VerifiedBy ? ' <span class="muted">(' + esc(l.VerifiedBy) + ', ' + esc(l.VerifiedOn) + ')</span>' : '') + '</p>' : '') +
             '<div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" data-checklist="' + esc(l.LogNo) + '">View checklist</button>' +
-            (isRtgTeam() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
+            (l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
             '</div></div>';
         }).join('') || '<div class="card"><p class="muted">Nothing here.</p></div>') + '</div>';
       }

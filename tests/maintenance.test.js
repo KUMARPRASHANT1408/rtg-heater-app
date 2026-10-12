@@ -1,9 +1,9 @@
-// Vendor maintenance log with checklist -> RTG verifies -> parts ready to issue again.
+// RTG maintenance log with checklist -> RTG verifies -> parts ready to issue again.
 const test = require('node:test');
 const assert = require('node:assert');
 const { makeContext } = require('./gas-fake');
 
-test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => {
+test('RTG logs maintenance with a checklist; RTG verifies or rejects', () => {
   const ctx = makeContext();
   const temp = /temporary password: (\S+)/.exec(ctx.setup())[1];
   ctx.loadSampleData();
@@ -11,7 +11,7 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   const call = (action, data, token) => JSON.parse(JSON.stringify(ctx.handle({ action, data, token })));
   const ok = (action, data, token) => { const r = call(action, data, token); assert.ok(r.ok, action + ': ' + r.error); return r.data; };
   const admin = ok('login', { userId: 'admin', password: temp }).token;
-  const vpw = ok('saveUser', { UserID: 'vm1', Name: 'Vendor Maint', Role: 'Local', Team: 'RTG Vendor', Email: 'vm1@x.com' }, admin).tempPassword;
+  const vpw = ok('saveUser', { UserID: 'vm1', Name: 'Vendor Maint', Role: 'Local', Team: 'RTG', Email: 'vm1@x.com' }, admin).tempPassword;
   const vendor = ok('login', { userId: 'vm1', password: vpw }).token;
   const fpw = ok('saveUser', { UserID: 'fm1', Name: 'FM', Role: 'Local', Team: 'FM' }, admin).tempPassword;
   const fm = ok('login', { userId: 'fm1', password: fpw }).token;
@@ -26,7 +26,7 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
 
   const file = { name: 'c.jpg', type: 'image/jpeg', data: Buffer.from('fake jpeg').toString('base64') };
   const base = { ComponentIDs: ['HM-02-S1-TP', 'HM-02-S1-BP'], WorkDone: 'Cleaned platens, checked wiring', file };
-  assert.match(call('logMaintenance', base, fm).error, /vendor team/);
+  assert.match(call('logMaintenance', base, fm).error, /permission/);
   assert.match(call('logMaintenance', Object.assign({}, base, { file: null }), vendor).error, /checklist/);
   assert.match(call('logMaintenance', Object.assign({}, base, { file: { type: 'text/plain', data: 'eA==' } }), vendor).error, /photo/);
   assert.match(call('logMaintenance', Object.assign({}, base, { ComponentIDs: ['NOPE-1'] }), vendor).error, /not in the store/);
@@ -41,7 +41,7 @@ test('vendor logs maintenance with a checklist; RTG verifies or rejects', () => 
   assert.strictEqual(ok('dashboard', {}, admin).maintenanceToVerify, 1);
   // Not ready until RTG verifies.
   assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 3);
-  assert.match(call('verifyMaintenance', { LogNo, decision: 'approve' }, vendor).error, /permission/);
+  assert.match(call('verifyMaintenance', { LogNo, decision: 'approve' }, fm).error, /permission/);
   ok('verifyMaintenance', { LogNo, decision: 'approve' }, admin);
   assert.strictEqual(ok('heaterSearch', { width: 1200, rating: 1250 }, admin).totals.suitableAvailable, 4);
   assert.strictEqual(ok('listMaintenanceLogs', {}, vendor)[0].Status, 'Verified');
