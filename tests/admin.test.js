@@ -59,3 +59,15 @@ test('activity and mail logs, newest first, admins only', () => {
   assert.strictEqual(log.rows[0].Ref, 'Departments');
   assert.strictEqual(ok('adminLog', { log: 'MailOutbox' }, admin).log, 'MailOutbox');
 });
+
+test('inventory: the RTG team can look at it, only admins can change it', () => {
+  const { call, ok, admin, fm } = app();
+  const rtgPw = ok('saveUser', { UserID: 'rtg01', Name: 'RTG', Role: 'Local', Team: 'RTG' }, admin).tempPassword;
+  const rtg = ok('login', { userId: 'rtg01', password: rtgPw }).token;
+  const list = ok('components', {}, rtg);
+  assert.ok(list.length > 0);
+  assert.deepStrictEqual(list, ok('components', {}, admin));
+  assert.match(call('components', {}, fm).error, /permission/);
+  assert.match(call('maintenance', { ComponentIDs: [list[0].ComponentID] }, rtg).error, /permission/);
+  assert.match(call('markFound', { ComponentIDs: [list[0].ComponentID] }, rtg).error, /permission/);
+});

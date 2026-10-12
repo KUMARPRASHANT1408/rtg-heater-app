@@ -12,6 +12,8 @@
   }
   function $(sel, root) { return (root || document).querySelector(sel); }
   function isAdmin() { return state.user && state.user.Role === 'Admin'; }
+  // The RTG team may look at the heater inventory; only admins change it.
+  function canSeeInventory() { return isAdmin() || (state.user && state.user.Team === 'RTG'); }
   function toast(msg) {
     var t = document.createElement('div');
     t.className = 'toast'; t.textContent = msg;
@@ -43,7 +45,7 @@
     { hash: '#/transfers', label: 'Transfers' },
     { hash: '#/consumables', label: 'Consumables' },
     { hash: '#/maintenance', label: 'Maintenance', maint: true },
-    { hash: '#/inventory', label: 'Inventory', admin: true },
+    { hash: '#/inventory', label: 'Inventory', inv: true },
     { hash: '#/users', label: 'Users', admin: true },
     { hash: '#/admin', label: 'Settings', admin: true }
   ];
@@ -51,7 +53,7 @@
                  '#/requests': renderRequests, '#/request': renderNewRequest, '#/ticket': renderTicket, '#/transfers': renderTransfers,
                  '#/consumables': renderConsumables, '#/consumable': renderConsumable, '#/maintenance': renderMaintenance, '#/calculator': renderCalculator,
                  '#/admin': renderAdmin };
-  var ADMIN_ROUTES = ['#/inventory', '#/users', '#/admin'];
+  var ADMIN_ROUTES = ['#/users', '#/admin'];
 
   // '#/ticket/RTGH0001?x=1' -> {base: '#/ticket', arg: 'RTGH0001', params: {x: '1'}}
   function parseHash() {
@@ -70,7 +72,7 @@
     renderedAt = Date.now();
     if (!state.user) return renderLogin();
     var h = parseHash();
-    if (ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) h = { base: '#/home', arg: '', params: {} };
+    if ((ADMIN_ROUTES.indexOf(h.base) >= 0 && !isAdmin()) || (h.base === '#/inventory' && !canSeeInventory())) h = { base: '#/home', arg: '', params: {} };
     renderChrome(h.base === '#/ticket' || h.base === '#/request' ? '#/requests' : h.base === '#/consumable' ? '#/consumables' : h.base);
     (ROUTES[h.base] || renderHome)(h.arg, h.params);
   }
@@ -79,7 +81,7 @@
     $('#topbar').classList.remove('hidden');
     $('#who-name').textContent = state.user.Name;
     $('#who-role').textContent = state.user.Role;
-    $('#nav').innerHTML = NAV.filter(function (n) { return (!n.admin || isAdmin()) && (!n.maint || canMaintain()); }).map(function (n) {
+    $('#nav').innerHTML = NAV.filter(function (n) { return (!n.admin || isAdmin()) && (!n.maint || canMaintain()) && (!n.inv || canSeeInventory()); }).map(function (n) {
       return '<a href="' + n.hash + '"' + (hash === n.hash ? ' class="active"' : '') + '>' + esc(n.label) + '</a>';
     }).join('');
   }
@@ -146,7 +148,7 @@
       { href: '#/consumables', ico: 'consumables', title: 'Consumables', text: 'Stock, expiry, monthly and department-wise consumption, and requests.' }
     ];
     if (canMaintain()) tiles.splice(isAdmin() ? 3 : 0, 0, { href: '#/maintenance', ico: 'maintenance', title: 'Heater maintenance', text: 'Log daily maintenance with the filled checklist. RTG verifies it, then the parts are ready to issue again.' });
-    if (isAdmin()) {
+    if (canSeeInventory()) {
       tiles.splice(1, 0, { href: '#/inventory', ico: 'inventory', title: 'Heater inventory', text: 'Every component, its condition, status and where it is.' });
     }
     tiles.push({ href: '#/calculator', ico: 'calculator', title: 'Joint calculator', text: 'Step length, joint length, platen size, pressure and cure time from the belt details.' });
@@ -1046,7 +1048,7 @@
     wireTransferDecisions(view, reload);
   }
 
-  // ---------- heater inventory (admin) ----------
+  // ---------- heater inventory (admins and the RTG team; only admins can change it) ----------
   function renderInventory() {
     view.innerHTML = '<div class="page-head"><div><h1>Heater inventory</h1><p class="muted">Every component in the RTG Store and on site.</p></div></div><p class="muted">Loading…</p>';
     API.call('components').then(function (rows) {
@@ -1091,7 +1093,7 @@
           return true;
         });
         $('#inv-body').innerHTML = list.map(function (c) {
-          var selectable = c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c));
+          var selectable = isAdmin() && (c.Status === STATUS.MISSING || (c.Status === STATUS.IN_STORE && !isUsable(c)));
           return '<tr><td>' + (selectable ? '<input type="checkbox" data-sel="' + esc(c.ComponentID) + '" style="min-height:auto">' : '') + '</td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(name[c.ModelID] || c.ModelID) + '</td><td>' + esc(c.SetNo) + '</td><td>' + esc(c.ComponentName) +
             (c.Remarks ? '<div class="small muted">' + esc(c.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(c.Qty) + '</td><td>' + pill(c) + '</td><td>' +
             esc(c.CurrentTicket) + (c.CurrentConveyor ? '<div class="small muted">' + esc(c.CurrentConveyor) + '</div>' : '') + '</td><td class="num">' + esc(c.JointsSinceMaintenance) + '</td></tr>';

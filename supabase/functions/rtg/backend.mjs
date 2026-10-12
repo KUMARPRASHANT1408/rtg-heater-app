@@ -350,13 +350,13 @@ function isActive_(u) {
 }
 
 // Returns the logged-in user, or throws. Pass roles to restrict an action.
-function requireUser(token, roles) {
+function requireUser(token, roles, teams) {
   var cache = CacheService.getScriptCache();
   var userId = token && cache.get('sess:' + token);
   if (!userId) throw new AuthError('Session expired. Please log in again.');
   var u = findOne('Users', 'UserID', userId);
   if (!u || !isActive_(u)) throw new AuthError('Account disabled.');
-  if (roles && roles.indexOf(u.Role) < 0) throw new Error('You do not have permission for this.');
+  if (roles && roles.indexOf(u.Role) < 0 && !(teams && teams.indexOf(u.Team) >= 0)) throw new Error('You do not have permission for this.');
   cache.put('sess:' + token, userId, SESSION_SECONDS); // sliding expiry
   return u;
 }
@@ -386,13 +386,13 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
                  'listConsumables', 'consumableDetail', 'listConsumableRequests',
                  'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
 
-// action -> { roles: who may call it (null = any logged-in user), run: function(user, data) }
+// action -> { roles: who may call it (null = any logged-in user), teams: teams also allowed, run: function(user, data) }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
   changePassword: { roles: null,  run: function (u, d) { return changePassword(u, d.oldPassword, d.newPassword); } },
   lookups:        { roles: null,  run: function () { return apiLookups(); } },
   heaterSearch:   { roles: null,  run: function (u, d) { return apiHeaterSearch(d); } },
-  components:     { roles: ADMIN, run: function (u, d) { return apiComponents(d); } },
+  components:     { roles: ADMIN, teams: ['RTG'], run: function (u, d) { return apiComponents(d); } },
   listUsers:      { roles: ADMIN, run: function () { return listUsers(); } },
   saveUser:       { roles: ADMIN, run: function (u, d) { return saveUser(u, d); } },
   resetPassword:  { roles: ADMIN, run: function (u, d) { return resetPassword(u, d.UserID); } },
@@ -454,7 +454,7 @@ function handle(req) {
     if (req.action === 'logout') return { ok: true, data: logout(req.token) };
     var a = ACTIONS[req.action];
     if (!a) return { ok: false, error: 'Unknown action: ' + req.action };
-    var user = requireUser(req.token, a.roles);
+    var user = requireUser(req.token, a.roles, a.teams);
     if (READ_ONLY.indexOf(req.action) >= 0) return { ok: true, data: a.run(user, req.data || {}) };
     // One writer at a time, so two people can't approve or issue the same thing at once.
     var lock = LockService.getScriptLock();
