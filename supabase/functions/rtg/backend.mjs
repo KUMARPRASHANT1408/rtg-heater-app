@@ -208,7 +208,7 @@ export function makeBackend(SpreadsheetApp, CacheService, LockService, Utilities
 // key: the column that names a row. fixed: rows can't be added or removed, only these columns edited.
 var MASTER_TABS = {
   Settings:    { key: 'Key', fixed: ['Value'] },
-  Conveyors:   { key: 'ConveyorName', numbers: ['BeltWidth_mm', 'BeltRating_Nmm', 'Plies'] },
+  Conveyors:   { key: 'ConveyorName', numbers: ['BeltWidth_mm', 'Plies'], rating: 'BeltRating_Nmm' },
   Departments: { key: 'Department' }
 };
 var HIDDEN_SETTINGS = ['ChecklistFolderId'];
@@ -251,8 +251,15 @@ function apiMasterSave(admin, d) {
         if (isNaN(Number(v))) return errors.push(where + c + ' must be a number.');
         v = Number(v);
       }
+      if (c === t.rating && v !== '') {
+        if (!normRating(v)) return errors.push(where + 'Belt rating "' + v + '" should be a number like 1000, or ST1000 / ST-1600 for a steel-cord belt.');
+        v = normRating(v);
+        if (/^\d+$/.test(v)) v = Number(v);
+      }
       clean[c] = v;
     });
+    // A steel-cord belt has no plies.
+    if (t.rating && /^ST/.test(String(clean[t.rating] || ''))) clean.Plies = '';
     var renamedFrom = rows.length === 1 && d.originalKey && String(d.originalKey).toLowerCase() !== key.toLowerCase() ? String(d.originalKey) : '';
     if (renamedFrom && existing[key.toLowerCase()]) return errors.push('"' + key + '" already exists.');
     var old = existing[(renamedFrom || key).toLowerCase()];
@@ -279,6 +286,110 @@ function apiMasterDelete(admin, d) {
   if (!deleteWhere(d.tab, t.key, d.key)) throw new Error('"' + d.key + '" was not found.');
   audit(admin.UserID, 'deleteFromList', d.tab, { key: d.key });
   return { ok: true };
+}
+
+// ---------- heater selection guide ----------
+// The RTG guide is replaced as a whole. It is read from the guide's own layout: width, rating ("1000/5" or
+// "ST1600"; plies may also be a column of their own) and the heater numbers ("12EF, 12GH" or "12-EF").
+function apiHeaterGuide() {
+  return { rows: readTable('HeaterSelection'), models: readTable('HeaterModels').map(function (m) { return m.ModelID; }) };
+}
+
+function heaterId_(v) {
+  var t = String(v || '').trim().toUpperCase().replace(/\s+/g, '');
+  var m = t.match(/^(\d+)-?([A-Z]+)$/);
+  return m ? m[1] + '-' + m[2] : t;
+}
+
+function apiSaveHeaterGuide(admin, d) {
+  var rows = parseList_(d.rows);
+  if (!rows.length) throw new Error('The guide is empty.');
+  var models = {};
+  readTable('HeaterModels').forEach(function (m) { models[String(m.ModelID).toUpperCase()] = m.ModelID; });
+  var out = [], errors = [], seen = {};
+  rows.forEach(function (r, i) {
+    var where = 'Row ' + (i + 2) + ': ';
+    var width = Number(String(r.BeltWidth_mm === undefined ? '' : r.BeltWidth_mm).trim());
+    var raw = String(r.BeltRating === undefined ? '' : r.BeltRating).toUpperCase().replace(/\s+/g, '');
+    var plies = String(r.Plies === undefined ? '' : r.Plies).trim();
+    var both = raw.match(/^(\d+)\/(\d+)$/);
+    if (both) { raw = both[1]; plies = both[2]; }
+    var rating = normRating(raw);
+    if (!(width > 0)) return errors.push(where + 'width "' + r.BeltWidth_mm + '" is not a number.');
+    if (!rating) return errors.push(where + 'rating "' + r.BeltRating + '" should look like 1000/5, ST1600 or ST-1600.');
+    if (/^ST/.test(rating)) plies = '';
+    else if (plies !== '' && !(Number(plies) > 0)) return errors.push(where + 'plies "' + plies + '" is not a number.');
+    var ids = String(r.HeaterIDs || '').split(/[,;\n]/).map(heaterId_).filter(String);
+    if (!ids.length) return errors.push(where + 'no heater numbers.');
+    var unknown = ids.filter(function (id) { return !models[id]; });
+    if (unknown.length) return errors.push(where + 'heater ' + unknown.join(', ') + ' is not in the heater list. Add it on the Heaters tab first.');
+    var k = width + '|' + rating + '|' + plies;
+    if (seen[k]) return errors.push(where + width + ' / ' + rating + (plies ? '/' + plies : '') + ' appears twice.');
+    seen[k] = true;
+    out.push({ BeltWidth_mm: width, BeltRating: rating, Plies: plies === '' ? '' : Number(plies),
+               HeaterIDs: ids.map(function (id) { return models[id]; }).join(', '), Notes: String(r.Notes || '').trim() });
+  });
+  if (errors.length) throw new Error(errors.slice(0, 6).join(' ') + (errors.length > 6 ? ' (' + errors.length + ' problems in all)' : ''));
+  var sh = sheet_('HeaterSelection');
+  if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+  appendRows('HeaterSelection', out);
+  audit(admin.UserID, 'saveHeaterGuide', '', { rows: out.length });
+  return { rows: out.length };
+}
+
+// ---------- heater list ----------
+// Short codes for part IDs, as in the RTG component list (12-G-HP1, 12-G-CB, 12-G-P631...).
+// Cross beams and end bolts are counted as one lot; every other part has its own ID.
+var PART_CODES = {
+  'Heating Platen': 'HP', 'Cross Beam': 'CB', 'Pressure Plate': 'PRP', 'End Bolt & Nut': 'BN', 'Edge Bar': 'EBAR', 'Edge Clamp': 'ECL',
+  'Control Panel': 'CP', 'Incoming Cable': 'IC', 'Outgoing Cable': 'OC', 'Distributor Block with Water Pressure Hose': 'DBP',
+  'Distributor Block with Water Cooling Hose (Input)': 'DBC', 'Water Pressure Bag': 'WPB', 'Pressure Ply (Wooden)': 'PLY',
+  'Water Pump Unit': 'WPU', '63A DS-6 Plug': 'P63', '125A DS-9 Plug': 'P125', 'JB Box': 'JB'
+};
+var LOT_PARTS = ['Cross Beam', 'End Bolt & Nut'];
+
+function partCode_(name) {
+  return PART_CODES[name] || String(name).replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(String).map(function (w) { return w.charAt(0).toUpperCase(); }).join('');
+}
+
+function apiListHeaters() {
+  var types = readTable('ComponentTypes'), comps = readTable('Components'), names = [];
+  types.forEach(function (t) { if (names.indexOf(t.ComponentName) < 0) names.push(t.ComponentName); });
+  Object.keys(PART_CODES).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+  return {
+    partNames: names,
+    heaters: readTable('HeaterModels').map(function (m) {
+      return { ModelID: m.ModelID, ModelName: m.ModelName, MadeFrom: m.MadeFrom,
+               parts: types.filter(function (t) { return t.ModelID === m.ModelID; }).map(function (t) { return { name: t.ComponentName, qty: Number(t.QtyPerSet) || 0 }; }),
+               rows: comps.filter(function (c) { return c.ModelID === m.ModelID; }).length };
+    })
+  };
+}
+
+// Adds a new (single, not paired) heater with one full set of parts in the store.
+function apiAddHeater(admin, d) {
+  var id = heaterId_(d.ModelID);
+  if (!id) throw new Error('Heater number is required.');
+  if (readTable('HeaterModels').some(function (m) { return String(m.ModelID).toUpperCase() === id; })) throw new Error('Heater ' + id + ' already exists.');
+  var parts = parseList_(d.parts).map(function (p) { return { name: String(p.name || '').trim(), qty: Number(p.qty) }; }).filter(function (p) { return p.name && p.qty; });
+  if (!parts.length) throw new Error('Give the number of each part this heater has.');
+  parts.forEach(function (p) { if (!(p.qty > 0) || p.qty % 1) throw new Error('The number for ' + p.name + ' must be a whole number.'); });
+  var types = [], comps = [];
+  parts.forEach(function (p) {
+    var lot = LOT_PARTS.indexOf(p.name) >= 0, code = partCode_(p.name);
+    types.push({ ModelID: id, ComponentName: p.name, QtyPerSet: p.qty, IsSerialised: lot ? 'N' : 'Y' });
+    var base = { ModelID: id, SetNo: 1, ComponentName: p.name, Condition: CONDITION.OK, Status: STATUS.IN_STORE, MaintenanceStatus: MAINT.OK, JointsSinceMaintenance: 0 };
+    if (lot || p.qty === 1) comps.push(Object.assign({}, base, { ComponentID: id + '-' + code, Qty: p.qty }));
+    else for (var n = 1; n <= p.qty; n++) comps.push(Object.assign({}, base, { ComponentID: id + '-' + code + n, Qty: 1 }));
+  });
+  var taken = {};
+  readTable('Components').forEach(function (c) { taken[c.ComponentID] = true; });
+  comps.forEach(function (c) { if (taken[c.ComponentID]) throw new Error('Part ID ' + c.ComponentID + ' is already used.'); });
+  appendRow('HeaterModels', { ModelID: id, ModelName: String(d.ModelName || '').trim() || 'Heater ' + id, Notes: String(d.Notes || '').trim() });
+  appendRows('ComponentTypes', types);
+  appendRows('Components', comps);
+  audit(admin.UserID, 'addHeater', id, { parts: comps.length });
+  return { ModelID: id, parts: comps.length };
 }
 
 // The newest LOG_LIMIT rows of the activity log or the mail log, newest first.
@@ -392,7 +503,7 @@ function changePassword(user, oldPassword, newPassword) {
 var ADMIN = ['Admin'];
 var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'listRequests', 'getRequest', 'dashboard', 'listTransfers',
                  'listConsumables', 'consumableDetail', 'consumableItems', 'listConsumableRequests',
-                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
+                 'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog', 'heaterGuide', 'listHeaters'];
 
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
@@ -440,6 +551,10 @@ var ACTIONS = {
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
   masterDelete:             { roles: ADMIN, run: function (u, d) { return apiMasterDelete(u, d); } },
+  heaterGuide:              { roles: ADMIN, run: function () { return apiHeaterGuide(); } },
+  saveHeaterGuide:          { roles: ADMIN, run: function (u, d) { return apiSaveHeaterGuide(u, d); } },
+  listHeaters:              { roles: ADMIN, run: function () { return apiListHeaters(); } },
+  addHeater:                { roles: ADMIN, run: function (u, d) { return apiAddHeater(u, d); } },
   adminLog:                 { roles: ADMIN, run: function (u, d) { return apiLog(d); } },
   clearTestData:            { roles: ADMIN, run: function (u) { clearTestData(); audit(u.UserID, 'clearTestData'); return { ok: true }; } }
 };
@@ -1113,14 +1228,23 @@ function splitIds_(v) {
   return String(v || '').split(/[,;\n]/).map(function (x) { return x.trim(); }).filter(String);
 }
 
-// Rows of the RTG selection guide that cover this belt: same width, same rating, and same plies when both are given.
-// A rating typed as "ST1000" only matches steel-cord rows; a plain number matches either kind.
+// Belt ratings: a fabric belt is a plain number (1000) and has plies; a steel-cord belt starts with ST and has no plies.
+// RTG writes some steel-cord belts as "ST-1600" to tell them apart from "ST1600" (different heaters), so a
+// steel-cord rating is a code that must match exactly. Returns the cleaned text, or '' when it is not a rating.
+function normRating(v) {
+  var t = String(v === undefined || v === null ? '' : v).toUpperCase().replace(/\s+/g, '');
+  return /^\d+$/.test(t) || /^ST-?\d+$/.test(t) ? t : '';
+}
 function isSteelCord_(v) { return /^\s*st/i.test(String(v === undefined ? '' : v)); }
+
+// Rows of the RTG selection guide that cover this belt: same width, then for a steel-cord belt the same ST code,
+// and for a fabric belt the same rating among the fabric rows, with the same plies when both are given.
 function guideMatches(guide, width, rating, plies) {
-  var st = isSteelCord_(rating), r = ratingNum_(rating);
+  var st = isSteelCord_(rating), code = normRating(rating) || String(rating).toUpperCase().replace(/\s+/g, ''), r = ratingNum_(rating);
   return guide.filter(function (g) {
-    if (num_(g.BeltWidth_mm) !== width || ratingNum_(g.BeltRating) !== r) return false;
-    if (st && !isSteelCord_(g.BeltRating)) return false;
+    if (num_(g.BeltWidth_mm) !== width) return false;
+    if (st) return isSteelCord_(g.BeltRating) && String(g.BeltRating).toUpperCase().replace(/\s+/g, '') === code;
+    if (isSteelCord_(g.BeltRating) || ratingNum_(g.BeltRating) !== r) return false;
     return !plies || !g.Plies || num_(g.Plies) === plies;
   });
 }
@@ -1205,7 +1329,7 @@ var JOINT_STD = {
 
 // "EP 800/4", "ep800/4", "NN 630 / 3", "ST1000" -> {type, rating, plies}
 function parseBelt(spec) {
-  var m = String(spec || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{1,3})?(\d+)(?:\/(\d+))?$/);
+  var m = String(spec || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{1,3})?-?(\d+)(?:\/(\d+))?$/);
   if (!m) return null;
   return { type: m[1] || 'EP', rating: Number(m[2]), plies: m[3] ? Number(m[3]) : 0 };
 }
@@ -1363,7 +1487,7 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }
 
 
@@ -1587,7 +1711,8 @@ function raiseRequest(user, d) {
   } else {
     required_(d, [['BeltWidth_mm', 'Belt width'], ['BeltRating_Nmm', 'Belt rating']]);
     if (!(Number(d.BeltWidth_mm) > 0)) throw new Error('Belt width must be a number in mm.');
-    if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) throw new Error('Type the belt rating as a number like 1000, or ST1000 for a steel-cord belt.');
+    if (!normRating(d.BeltRating_Nmm)) throw new Error('Type the belt rating as a number like 1000, or ST1000 (ST-1600 where RTG writes it so) for a steel-cord belt.');
+    if (/^ST/.test(normRating(d.BeltRating_Nmm))) d.Plies = '';
     if (d.Plies !== undefined && d.Plies !== '' && !(Number(d.Plies) > 0)) throw new Error('Plies must be a number.');
   }
 

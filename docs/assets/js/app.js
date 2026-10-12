@@ -237,7 +237,7 @@
       if (!c) return;
       var r = String(c.BeltRating_Nmm || '').toUpperCase();
       form.width.value = c.BeltWidth_mm || '';
-      form.belt.value = /^ST/.test(r) ? r : r ? 'EP ' + r + (c.Plies ? '/' + c.Plies : '') : '';
+      form.belt.value = /^ST/.test(r) ? r.replace(/^ST-/, 'ST') : r ? 'EP ' + r + (c.Plies ? '/' + c.Plies : '') : '';
       update();
     });
     if (params && params.belt) { form.belt.value = params.belt; form.width.value = params.w || ''; }
@@ -490,9 +490,9 @@
       '</select></label>' +
       '<label>Belt width (mm)<input name="width" type="number" min="1" required inputmode="numeric" list="guide-widths"></label>' +
       '<datalist id="guide-widths">' + guideWidths().map(function (w) { return '<option value="' + w + '">'; }).join('') + '</datalist>' +
-      '<label>Belt rating (N/mm)<input name="rating" required list="guide-ratings" placeholder="e.g. 1000 or ST1000" autocomplete="off"></label>' +
+      '<label>Belt rating (N/mm)<input name="rating" required list="guide-ratings" placeholder="e.g. 1000, or ST1600 for steel cord" autocomplete="off"></label>' +
       '<datalist id="guide-ratings"></datalist>' +
-      '<label>No. of plies<input name="plies" type="number" min="1" inputmode="numeric"></label>' +
+      '<label>No. of plies (fabric belt)<input name="plies" type="number" min="1" inputmode="numeric"></label>' +
       '<button class="btn" type="submit">Show heaters</button>' +
       '</div><p class="small muted" style="margin:10px 0 0">Raising a request for FM? <a href="#/request">Request with just the belt details</a>.</p></form><div id="results" class="stack" style="margin-top:20px"></div>';
     var form = $('#form-search');
@@ -507,18 +507,19 @@
     form.width.addEventListener('input', fillRatings);
     form.rating.addEventListener('blur', function () {
       var v = form.rating.value.trim().toUpperCase().replace(/\s+/g, '');
-      form.rating.value = /^(ST)?\d+$/.test(v) ? v : form.rating.value.trim();
+      form.rating.value = /^(\d+|ST-?\d+)$/.test(v) ? v : form.rating.value.trim();
+      steelCord(form.rating, form.plies);
     });
     form.conveyor.addEventListener('change', function () {
       var c = conv.filter(function (x) { return x.ConveyorName === form.conveyor.value; })[0];
       if (!c) return;
       form.width.value = c.BeltWidth_mm || ''; form.rating.value = c.BeltRating_Nmm || ''; form.plies.value = c.Plies || '';
-      fillRatings();
+      fillRatings(); steelCord(form.rating, form.plies);
     });
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var f = formData(form), btn = $('button', form);
-      if (!/^(ST)?\d+$/i.test(String(f.rating).replace(/\s+/g, ''))) { toast('Type the rating as a number like 1000, or ST1000 for a steel-cord belt.'); return; }
+      if (!/^(\d+|ST-?\d+)$/.test(String(f.rating).toUpperCase().replace(/\s+/g, ''))) { toast(RATING_HELP); return; }
       busy(btn, true);
       $('#results').innerHTML = '<p class="muted">Checking the store…</p>';
       API.call('heaterSearch', { width: f.width, rating: f.rating, plies: f.plies })
@@ -687,6 +688,15 @@
     }).catch(handleError);
   }
 
+  // A steel-cord belt (rating starting with ST) has no plies, so the plies box is cleared and switched off.
+  var RATING_HELP = 'Type the rating as a number like 1000 for a fabric belt, or ST1600 for a steel-cord belt (ST-1600 where RTG writes it that way).';
+  function steelCord(ratingInput, pliesInput) {
+    var st = /^\s*st/i.test(ratingInput.value);
+    if (st) pliesInput.value = '';
+    pliesInput.disabled = st;
+    pliesInput.placeholder = st ? 'Not for steel cord' : '';
+  }
+
   // FM gives only the belt details (and the heater number if they know it). The RTG team picks the heater when approving.
   function beltRequestForm(models, conv) {
     var t = todayStr(), fm = team() === 'FM';
@@ -698,8 +708,8 @@
       '<label>Conveyor name<input name="ConveyorName" required list="conv-list" autocomplete="off"></label>' +
       '<label>Belt width (mm)<input name="BeltWidth_mm" type="number" min="1" required inputmode="numeric" list="guide-widths"></label>' +
       '<datalist id="guide-widths">' + guideWidths().map(function (w) { return '<option value="' + w + '">'; }).join('') + '</datalist>' +
-      '<label>Belt rating (N/mm)<input name="BeltRating_Nmm" required placeholder="e.g. 1000 or ST1000" autocomplete="off"></label>' +
-      '<label>No. of plies<input name="Plies" type="number" min="1" inputmode="numeric"></label>' +
+      '<label>Belt rating (N/mm)<input name="BeltRating_Nmm" required placeholder="e.g. 1000, or ST1600 for steel cord" autocomplete="off"></label>' +
+      '<label>No. of plies (fabric belt)<input name="Plies" type="number" min="1" inputmode="numeric"></label>' +
       '<label>Heater no. (if you know it)<input name="HeaterAsked" list="model-list" autocomplete="off" placeholder="Optional"></label>' +
       '</div></div>' +
       '<div class="card stack"><h2>Issue details</h2><div class="row">' +
@@ -722,17 +732,19 @@
       if (!c) return;
       if (c.BeltWidth_mm) form.BeltWidth_mm.value = c.BeltWidth_mm;
       if (c.BeltRating_Nmm) form.BeltRating_Nmm.value = c.BeltRating_Nmm;
-      if (c.Plies) form.Plies.value = c.Plies;
+      form.Plies.value = c.Plies || '';
+      steelCord(form.BeltRating_Nmm, form.Plies);
     });
     form.BeltRating_Nmm.addEventListener('blur', function () {
       var v = form.BeltRating_Nmm.value.trim().toUpperCase().replace(/\s+/g, '');
-      form.BeltRating_Nmm.value = /^(ST)?\d+$/.test(v) ? v : form.BeltRating_Nmm.value.trim();
+      form.BeltRating_Nmm.value = /^(\d+|ST-?\d+)$/.test(v) ? v : form.BeltRating_Nmm.value.trim();
+      steelCord(form.BeltRating_Nmm, form.Plies);
     });
     form.IssueDate.addEventListener('change', function () { form.ExpectedReturnDate.min = form.IssueDate.value; });
     form.addEventListener('submit', function (e) {
       e.preventDefault();
       var d = formData(form);
-      if (!/^(ST)?\d+$/i.test(String(d.BeltRating_Nmm).replace(/\s+/g, ''))) return showError($('#req-error'), new Error('Type the rating as a number like 1000, or ST1000 for a steel-cord belt.'));
+      if (!/^(\d+|ST-?\d+)$/.test(String(d.BeltRating_Nmm).toUpperCase().replace(/\s+/g, ''))) return showError($('#req-error'), new Error(RATING_HELP));
       var btn = $('button[type=submit]', form);
       busy(btn, true);
       API.call('raiseRequest', d).then(function (r) {
@@ -1749,10 +1761,12 @@
 
   // ---------- settings, lists and logs (admins) ----------
   // What used to be typed into the Google Sheet. On Supabase the Sheet is only a nightly copy, so edits belong here.
-  var ADMIN_TABS = [['Settings', 'Settings'], ['Conveyors', 'Conveyors'], ['Departments', 'Departments'], ['AuditLog', 'Activity log'], ['MailOutbox', 'Mail log']];
+  var ADMIN_TABS = [['Settings', 'Settings'], ['Conveyors', 'Conveyors'], ['Departments', 'Departments'], ['Heaters', 'Heaters'], ['HeaterSelection', 'Heater guide'], ['AuditLog', 'Activity log'], ['MailOutbox', 'Mail log']];
   var LIST_HELP = {
     Settings: 'Mail addresses and timings the app uses. Several addresses: separate them with commas.',
-    Conveyors: 'The conveyor list for requests and the joint calculator. Upload a CSV file to add many at once (same name = updated).',
+    Conveyors: 'The conveyor list for requests and the joint calculator. Upload a CSV file to add many at once (same name = updated). Steel-cord belts: rating like ST1600, no plies.',
+    Heaters: 'Every heater the store has. Add a new heater here before using it in the heater guide.',
+    HeaterSelection: 'The RTG heater selection guide: which heaters suit each belt. Uploading a file replaces the whole guide.',
     Departments: 'Departments that consume material.'
   };
   function renderAdmin(arg, params) {
@@ -1765,6 +1779,10 @@
     var box = $('#admin-box');
     if (isLog) {
       API.call('adminLog', { log: tab }).then(function (d) { renderLog(box, d); }).catch(handleError);
+    } else if (tab === 'Heaters') {
+      API.call('listHeaters').then(function (d) { renderHeaterList(box, d); }).catch(handleError);
+    } else if (tab === 'HeaterSelection') {
+      API.call('heaterGuide').then(function (d) { renderGuide(box, d); }).catch(handleError);
     } else {
       API.call('masterList', { tab: tab }).then(function (d) { (tab === 'Settings' ? renderSettingsList : renderMasterList)(box, d); }).catch(handleError);
     }
@@ -1786,6 +1804,79 @@
       (d.more ? '<p class="muted small">Showing the newest ' + d.rows.length + '. The full log is in the Google Sheet copy.</p>' : '');
     draw('');
     $('#log-filter', box).addEventListener('input', function () { draw(this.value); });
+  }
+
+  function renderHeaterList(box, d) {
+    box.innerHTML = '<div class="actions" style="justify-content:flex-start;margin:0 0 12px"><button class="btn" type="button" id="h-add">+ Add heater</button></div>' +
+      '<div class="table-wrap"><table><thead><tr><th>Heater</th><th>Name</th><th>Made from</th><th>Parts per set</th></tr></thead><tbody>' +
+      d.heaters.map(function (h) {
+        return '<tr><td><b>' + esc(h.ModelID) + '</b></td><td>' + esc(h.ModelName) + '</td><td>' + esc(h.MadeFrom || '') + '</td><td class="small">' +
+          esc(h.parts.map(function (p) { return p.name + ' ' + p.qty; }).join(', ')) + '</td></tr>';
+      }).join('') + '</tbody></table></div><p class="muted small">' + d.heaters.length + ' heaters.</p>';
+    $('#h-add', box).addEventListener('click', function () {
+      formDialog('Add heater',
+        '<div class="row"><label>Heater number *<input name="ModelID" required placeholder="e.g. 12-CD"></label><label>Name<input name="ModelName" placeholder="Heater 12-CD"></label></div>' +
+        '<p class="muted small">How many of each part one set of this heater has (leave empty if it has none). Cross beams and end bolts are kept as one lot; every other part gets its own ID like 12-CD-HP1.</p>' +
+        '<div class="row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">' +
+        d.partNames.map(function (n, i) { return '<label class="small">' + esc(n) + '<input type="number" min="0" step="1" inputmode="numeric" data-part="' + i + '"></label>'; }).join('') + '</div>',
+        'Add heater', function (vals, dlg) {
+          var parts = d.partNames.map(function (n, i) { return { name: n, qty: Number($('[data-part="' + i + '"]', dlg).value) || 0 }; }).filter(function (p) { return p.qty > 0; });
+          return API.call('addHeater', { ModelID: vals.ModelID, ModelName: vals.ModelName, parts: parts }).then(function (r) {
+            dlg.close(); toast('Heater ' + r.ModelID + ' added with ' + r.parts + ' part IDs');
+            API.call('lookups').then(function (l) { state.lookups = l; }).catch(function () {});
+            renderAdmin('', { t: 'Heaters' });
+          });
+        });
+    });
+  }
+
+  // The guide file can be the RTG guide saved as CSV: Width, Belt Rating (1000/5 or ST1600), Heater no.
+  function renderGuide(box, d) {
+    box.innerHTML = '<div class="actions" style="justify-content:flex-start;margin:0 0 12px">' +
+      '<button class="btn" type="button" id="g-upload">Upload guide (CSV)</button><button class="btn secondary" type="button" id="g-download">Download current guide</button></div>' +
+      '<p class="muted small">Columns: <b>Width</b>, <b>Belt Rating</b> (fabric like 1000/5, steel cord like ST1600 or ST-1600) and <b>Heater no.</b> (like 12EF, 12GH). ' +
+      'In Excel use File, Save As, CSV. ST1600 and ST-1600 are kept apart, so a conveyor gets the heaters of the code it has in the conveyor list.</p>' +
+      '<div class="table-wrap"><table><thead><tr><th class="num">Width</th><th>Rating</th><th class="num">Plies</th><th>Heaters</th><th>Notes</th></tr></thead><tbody>' +
+      (d.rows.map(function (r) {
+        return '<tr><td class="num">' + esc(r.BeltWidth_mm) + '</td><td><b>' + esc(r.BeltRating) + '</b>' + (/^ST/i.test(r.BeltRating) ? ' <span class="pill info">steel cord</span>' : '') + '</td><td class="num">' + esc(r.Plies) + '</td><td>' + esc(r.HeaterIDs) + '</td><td class="small muted">' + esc(r.Notes) + '</td></tr>';
+      }).join('') || '<tr><td colspan="5" class="muted">The guide is empty, so heaters are matched by their width and rating range.</td></tr>') + '</tbody></table></div>' +
+      '<p class="muted small">' + d.rows.length + ' rows.</p>';
+    $('#g-download', box).addEventListener('click', function () {
+      var q = function (v) { v = String(v === undefined ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      var lines = ['Width,Belt Rating,Heater no.,Notes'].concat(d.rows.map(function (r) {
+        return [r.BeltWidth_mm, r.BeltRating + (r.Plies ? '/' + r.Plies : ''), r.HeaterIDs, r.Notes].map(q).join(',');
+      }));
+      saveFile('heater_guide.csv', new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
+    });
+    $('#g-upload', box).addEventListener('click', function () {
+      var input = document.createElement('input');
+      input.type = 'file'; input.accept = '.csv,text/csv';
+      input.addEventListener('change', function () {
+        var file = input.files[0];
+        if (!file) return;
+        var rd = new FileReader();
+        rd.onload = function () {
+          var rows = parseCsv(String(rd.result)).filter(function (r) { return r.join('').trim() !== ''; });
+          if (rows.length < 2) return toast('The file needs a header row and at least one row.');
+          var head = rows[0].map(function (h) { return String(h).trim().toLowerCase(); });
+          var col = function (re) { for (var i = 0; i < head.length; i++) if (re.test(head[i])) return i; return -1; };
+          var iw = col(/width/), ir = col(/rating/), ip = col(/^plies$|^ply$|no\.? of pl/), ih = col(/heater/), inote = col(/note/);
+          if (iw < 0 || ir < 0 || ih < 0) return toast('The header row needs Width, Belt Rating and Heater no. columns.');
+          var objs = rows.slice(1).map(function (r) {
+            var g = function (i) { return i < 0 || r[i] === undefined ? '' : String(r[i]).trim(); };
+            return { BeltWidth_mm: g(iw), BeltRating: g(ir), Plies: g(ip), HeaterIDs: g(ih), Notes: g(inote) };
+          });
+          if (!confirm('Replace the whole heater guide with the ' + objs.length + ' rows in ' + file.name + '?')) return;
+          API.call('saveHeaterGuide', { rows: objs }).then(function (res) {
+            toast('Heater guide saved: ' + res.rows + ' rows');
+            API.call('lookups').then(function (l) { state.lookups = l; }).catch(function () {});
+            renderAdmin('', { t: 'HeaterSelection' });
+          }).catch(function (err) { alert(err.message); });
+        };
+        rd.readAsText(file);
+      });
+      input.click();
+    });
   }
 
   function renderSettingsList(box, d) {
@@ -1848,7 +1939,7 @@
     });
     if (d.tab !== 'Conveyors') return;
     $('#m-template', box).addEventListener('click', function () {
-      var lines = [d.columns.join(','), 'CNV-101,Raw Material,1200,1250,4,'];
+      var lines = [d.columns.join(','), 'CNV-101,Raw Material,1200,1250,4,', 'CNV-102,Raw Material,1400,ST1600,,Steel cord: no plies'];
       saveFile('conveyors_template.csv', new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/csv' }));
     });
     $('#m-upload', box).addEventListener('click', function () {

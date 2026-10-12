@@ -92,14 +92,23 @@ function splitIds_(v) {
   return String(v || '').split(/[,;\n]/).map(function (x) { return x.trim(); }).filter(String);
 }
 
-// Rows of the RTG selection guide that cover this belt: same width, same rating, and same plies when both are given.
-// A rating typed as "ST1000" only matches steel-cord rows; a plain number matches either kind.
+// Belt ratings: a fabric belt is a plain number (1000) and has plies; a steel-cord belt starts with ST and has no plies.
+// RTG writes some steel-cord belts as "ST-1600" to tell them apart from "ST1600" (different heaters), so a
+// steel-cord rating is a code that must match exactly. Returns the cleaned text, or '' when it is not a rating.
+function normRating(v) {
+  var t = String(v === undefined || v === null ? '' : v).toUpperCase().replace(/\s+/g, '');
+  return /^\d+$/.test(t) || /^ST-?\d+$/.test(t) ? t : '';
+}
 function isSteelCord_(v) { return /^\s*st/i.test(String(v === undefined ? '' : v)); }
+
+// Rows of the RTG selection guide that cover this belt: same width, then for a steel-cord belt the same ST code,
+// and for a fabric belt the same rating among the fabric rows, with the same plies when both are given.
 function guideMatches(guide, width, rating, plies) {
-  var st = isSteelCord_(rating), r = ratingNum_(rating);
+  var st = isSteelCord_(rating), code = normRating(rating) || String(rating).toUpperCase().replace(/\s+/g, ''), r = ratingNum_(rating);
   return guide.filter(function (g) {
-    if (num_(g.BeltWidth_mm) !== width || ratingNum_(g.BeltRating) !== r) return false;
-    if (st && !isSteelCord_(g.BeltRating)) return false;
+    if (num_(g.BeltWidth_mm) !== width) return false;
+    if (st) return isSteelCord_(g.BeltRating) && String(g.BeltRating).toUpperCase().replace(/\s+/g, '') === code;
+    if (isSteelCord_(g.BeltRating) || ratingNum_(g.BeltRating) !== r) return false;
     return !plies || !g.Plies || num_(g.Plies) === plies;
   });
 }
@@ -184,7 +193,7 @@ var JOINT_STD = {
 
 // "EP 800/4", "ep800/4", "NN 630 / 3", "ST1000" -> {type, rating, plies}
 function parseBelt(spec) {
-  var m = String(spec || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{1,3})?(\d+)(?:\/(\d+))?$/);
+  var m = String(spec || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z]{1,3})?-?(\d+)(?:\/(\d+))?$/);
   if (!m) return null;
   return { type: m[1] || 'EP', rating: Number(m[2]), plies: m[3] ? Number(m[3]) : 0 };
 }
@@ -342,5 +351,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }
