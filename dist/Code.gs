@@ -228,12 +228,15 @@ var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
 // RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
-var TEAMS = ['FM', 'Vendor', 'RTG'];
+// RTG Vendor: the store's maintenance contractor; only logs heater maintenance (RTG verifies it).
+var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
 
 // Who may do what. Admins may do everything.
 function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
 // The RTG team runs the store: sees and changes the stock, approves, issues, takes back and maintains.
 function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
+// Logs heater maintenance and sees the maintenance logs.
+function canMaintain_(u) { return isRtgTeam_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;
@@ -328,6 +331,8 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
 function RTG(u) { return isRtgTeam_(u); }
+// MAINT: the RTG team and the RTG Vendor (heater maintenance only).
+function MAINT_(u) { return canMaintain_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
   changePassword: { roles: null,  run: function (u, d) { return changePassword(u, d.oldPassword, d.newPassword); } },
@@ -365,8 +370,8 @@ var ACTIONS = {
   issueConsumable:          { allow: RTG,   run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
-  listMaintenanceLogs:      { allow: RTG,   run: function (u) { return listMaintenanceLogs(u); } },
-  getChecklist:             { allow: RTG,   run: function (u, d) { return getChecklist(u, d); } },
+  listMaintenanceLogs:      { allow: MAINT_, run: function (u) { return listMaintenanceLogs(u); } },
+  getChecklist:             { allow: MAINT_, run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
@@ -1312,7 +1317,7 @@ if (typeof module !== 'undefined') {
 
 
 // ===== Maintenance.gs =====
-// Heater maintenance by the RTG team: they log which parts they maintained each day and attach the
+// Heater maintenance by the RTG team or the RTG Vendor: they log which parts they maintained each day and attach the
 // filled checklist; the RTG team verifies the log, and only then the parts become ready to issue again.
 
 var MLOG = { SUBMITTED: 'Submitted', VERIFIED: 'Verified', REJECTED: 'Rejected' };
@@ -1342,7 +1347,7 @@ function pendingLogIds_(logs) {
 // Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var models = {}, pairs = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
@@ -1354,7 +1359,7 @@ function maintenanceDue(user) {
 }
 
 function logMaintenance(user, d) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
   required_(d, [['WorkDone', 'Work done']]);
@@ -1386,7 +1391,7 @@ function logMaintenance(user, d) {
 }
 
 function listMaintenanceLogs(user) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
   var names = {};
@@ -1400,7 +1405,7 @@ function listMaintenanceLogs(user) {
 }
 
 function getChecklist(user, d) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var l = findOne('MaintenanceLogs', 'LogNo', d.LogNo);
   if (!l || !l.ChecklistFileId) throw new Error('No checklist for this log.');
   var blob = DriveApp.getFileById(l.ChecklistFileId).getBlob();
@@ -1884,7 +1889,7 @@ function dashboard(user) {
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
-    maintenanceDue: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
+    maintenanceDue: !(store || canMaintain_(user)) ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
     missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
     transfersPending: transfers.filter(function (t) { return t.waitingWith.length; }).length,
     transfersForMe: transfers.filter(function (t) { return t.canDecide; }).length,

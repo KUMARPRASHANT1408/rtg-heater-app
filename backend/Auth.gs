@@ -5,12 +5,15 @@ var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
 // RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
-var TEAMS = ['FM', 'Vendor', 'RTG'];
+// RTG Vendor: the store's maintenance contractor; only logs heater maintenance (RTG verifies it).
+var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
 
 // Who may do what. Admins may do everything.
 function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
 // The RTG team runs the store: sees and changes the stock, approves, issues, takes back and maintains.
 function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
+// Logs heater maintenance and sees the maintenance logs.
+function canMaintain_(u) { return isRtgTeam_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;

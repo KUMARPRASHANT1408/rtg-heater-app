@@ -1,4 +1,4 @@
-// Heater maintenance by the RTG team: they log which parts they maintained each day and attach the
+// Heater maintenance by the RTG team or the RTG Vendor: they log which parts they maintained each day and attach the
 // filled checklist; the RTG team verifies the log, and only then the parts become ready to issue again.
 
 var MLOG = { SUBMITTED: 'Submitted', VERIFIED: 'Verified', REJECTED: 'Rejected' };
@@ -28,7 +28,7 @@ function pendingLogIds_(logs) {
 // Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var models = {}, pairs = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
@@ -40,7 +40,7 @@ function maintenanceDue(user) {
 }
 
 function logMaintenance(user, d) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
   required_(d, [['WorkDone', 'Work done']]);
@@ -72,7 +72,7 @@ function logMaintenance(user, d) {
 }
 
 function listMaintenanceLogs(user) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
   var names = {};
@@ -86,7 +86,7 @@ function listMaintenanceLogs(user) {
 }
 
 function getChecklist(user, d) {
-  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var l = findOne('MaintenanceLogs', 'LogNo', d.LogNo);
   if (!l || !l.ChecklistFileId) throw new Error('No checklist for this log.');
   var blob = DriveApp.getFileById(l.ChecklistFileId).getBlob();
