@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { makeContext } = require('./gas-fake');
+const { BILL_REMARK } = require('../shared/logic.js');
 
 function addRows(ctx, table, rows) { rows.forEach((r) => ctx.appendRow(table, r)); }
 
@@ -131,4 +132,38 @@ test('clearTestData puts split lots back and resets every part', () => {
   assert.strictEqual(after.length, before);
   assert.strictEqual(Number(after.find((c) => c.ComponentID === '14-D-CB').Qty), 10);
   assert.ok(after.every((c) => c.Status === 'In store' && c.Condition === 'OK' && !c.LastInspected && !c.CurrentTicket));
+});
+
+test('clearTestData also rejoins a split lot that was marked missing, and clears the automatic remarks', () => {
+  const { ctx, ok, admin, issue } = app();
+  const before = ctx.readTable('Components').map((c) => [c.ComponentID, Number(c.Qty)]);
+  const tk = issue('14-CD', PAIR);
+  const items = ctx.readTable('TicketItems').filter((i) => i.TicketNo === tk);
+  ok('returnTicket', { TicketNo: tk, issueText: 'beams lost', items: items.map((i) => ({ ComponentID: i.ComponentID, result: /CB/.test(i.ComponentID) ? 'Missing' : 'OK' })) }, admin);
+  assert.ok(ctx.readTable('Components').some((c) => c.Status === 'Missing'));
+  ctx.clearTestData();
+  const after = ctx.readTable('Components');
+  assert.deepStrictEqual(after.map((c) => [c.ComponentID, Number(c.Qty)]), before);
+  assert.ok(after.every((c) => c.Status === 'In store' && !c.Remarks), JSON.stringify(after));
+});
+
+test('not returned and missing parts get the bill remark, mailed to FM with the HODs in CC', () => {
+  const { ctx, ok, admin, issue } = app();
+  ok('masterSave', { tab: 'Settings', rows: [{ Key: 'FMHODMail', Value: 'fmhod@company.com' }, { Key: 'RTGHODMail', Value: 'rtghod@company.com' }, { Key: 'BillMailCC', Value: 'boss@company.com' }] }, admin);
+  const tk = issue('14-CD', PAIR);
+  const items = ctx.readTable('TicketItems').filter((i) => i.TicketNo === tk);
+  const res = (i) => i.ComponentID === '14-C-HP1' ? 'Missing' : i.ComponentID === '14-C-HP2' ? 'Not returned' : 'OK';
+  ok('returnTicket', { TicketNo: tk, issueText: 'one platen lost', items: items.map((i) => ({ ComponentID: i.ComponentID, result: res(i), remarks: i.ComponentID === '14-C-HP1' ? 'fell off' : '' })) }, admin);
+  const rows = {};
+  ctx.readTable('TicketItems').forEach((i) => { rows[i.ComponentID] = i; });
+  assert.strictEqual(rows['14-C-HP1'].Remarks, BILL_REMARK.Missing + ' fell off');
+  assert.strictEqual(rows['14-C-HP2'].Remarks, BILL_REMARK['Not returned']);
+  assert.ok(!rows['14-C-HP2'].ConditionIn, 'still on site');
+  const mails = ctx.readTable('MailOutbox');
+  const nr = mails.find((m) => m.Type === 'NOT_RETURNED'), is = mails.find((m) => m.Type === 'HEATER_ISSUE');
+  assert.ok(nr && is, JSON.stringify(mails.map((m) => m.Type)));
+  ['fmhod@company.com', 'rtghod@company.com', 'boss@company.com'].forEach((a) => { assert.ok(nr.CC.includes(a) && is.CC.includes(a), a); });
+  // Once the part comes back OK, its remark goes.
+  ok('returnTicket', { TicketNo: tk, items: [{ ComponentID: '14-C-HP2', result: 'OK' }] }, admin);
+  assert.strictEqual(ctx.readTable('TicketItems').find((i) => i.ComponentID === '14-C-HP2').Remarks, '');
 });

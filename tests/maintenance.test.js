@@ -80,3 +80,25 @@ test('clearTestData removes test activity but keeps master data and users', () =
   assert.strictEqual(ctx.readTable('Users').length, 1);
   assert.strictEqual(ctx.nextNumber('crequest', 'RTGC'), 'RTGC0001');
 });
+
+test('maintenance can say what was done on each part; a new setting shows up before setup adds it', () => {
+  const ctx = makeContext();
+  const temp = /temporary password: (\S+)/.exec(ctx.setup())[1];
+  ctx.loadSampleData();
+  const call = (action, data, token) => JSON.parse(JSON.stringify(ctx.handle({ action, data, token })));
+  const ok = (action, data, token) => { const r = call(action, data, token); assert.ok(r.ok, action + ': ' + r.error); return r.data; };
+  const admin = ok('login', { userId: 'admin', password: temp }).token;
+  const file = { name: 'c.jpg', type: 'image/jpeg', data: Buffer.from('x').toString('base64') };
+  const ids = ['HM-02-S1-TP', 'HM-02-S1-BP'];
+  assert.match(call('logMaintenance', { ComponentIDs: ids, PartWork: { 'HM-02-S1-TP': 'Cleaned' }, file }, admin).error, /each part/);
+  ok('logMaintenance', { ComponentIDs: ids, PartWork: { 'HM-02-S1-TP': 'Cleaned platen', 'HM-02-S1-BP': 'Changed 2 bolts' }, file }, admin);
+  const log = ok('listMaintenanceLogs', {}, admin)[0];
+  assert.deepStrictEqual(log.parts.map((p) => p.work), ['Cleaned platen', 'Changed 2 bolts']);
+
+  // An older database without the new row: the setting is still listed, and saving it adds the row.
+  ctx.updateWhere('Settings', 'Key', 'FMHODMail', { Key: 'OldUnusedKey' });
+  assert.ok(ok('masterList', { tab: 'Settings' }, admin).rows.some((r) => r.Key === 'FMHODMail'));
+  ok('masterSave', { tab: 'Settings', rows: [{ Key: 'FMHODMail', Value: 'fmhod@x.com' }] }, admin);
+  assert.strictEqual(ctx.readTable('Settings').find((r) => r.Key === 'FMHODMail').Value, 'fmhod@x.com');
+  assert.match(call('masterSave', { tab: 'Settings', rows: [{ Key: 'Nope', Value: '1' }] }, admin).error, /not a setting/);
+});

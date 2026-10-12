@@ -4,6 +4,11 @@
 var STATUS = { IN_STORE: 'In store', ISSUED: 'Issued', MISSING: 'Missing' };
 var CONDITION = { OK: 'OK', DAMAGED: 'Damaged', REPAIR: 'Under repair', SCRAPPED: 'Scrapped' };
 var MAINT = { OK: 'OK', DUE: 'Due' };
+// Remarks written by themselves on a return when a part is not back or is missing. The vendor's bill depends on them.
+var BILL_REMARK = {
+  'Not returned': 'Bills to be approved only after returning the component.',
+  'Missing': 'Bills to be approved after consulting RTG, and the spare cost is to be deducted from the vendor bill. Before approving the bill, kindly share the amount deducted.'
+};
 
 function num_(v) {
   var n = Number(v);
@@ -351,5 +356,5 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, BILL_REMARK: BILL_REMARK, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }

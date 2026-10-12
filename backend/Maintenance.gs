@@ -17,6 +17,12 @@ function checklistFolder_() {
   return folder;
 }
 
+function parseObj_(v) {
+  if (!v) return {};
+  if (typeof v === 'object') return Array.isArray(v) ? {} : v;
+  try { var o = JSON.parse(String(v)); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; }
+}
+
 function pendingLogIds_(logs) {
   var ids = {};
   logs.filter(function (l) { return l.Status === MLOG.SUBMITTED; }).forEach(function (l) {
@@ -43,7 +49,10 @@ function logMaintenance(user, d) {
   if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
-  required_(d, [['WorkDone', 'Work done']]);
+  // What was done on each part (d.PartWork = {ComponentID: text}). The general "work done" covers parts left blank.
+  var work = {}, given = parseObj_(d.PartWork);
+  ids.forEach(function (id) { var t = String(given[id] || '').trim(); if (t) work[id] = t.slice(0, 500); });
+  if (!String(d.WorkDone || '').trim() && Object.keys(work).length < ids.length) throw new Error('Write what you did on each part, or fill in "Work done" for all of them.');
   var date = String(d.LogDate || today()).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) throw new Error('Choose today or an earlier date.');
   var file = d.file || {};
@@ -61,12 +70,12 @@ function logMaintenance(user, d) {
   var name = no + ' checklist ' + date + '.' + (file.type === 'application/pdf' ? 'pdf' : file.type.split('/')[1].replace('jpeg', 'jpg'));
   var saved = checklistFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(file.data), file.type, name));
   appendRow('MaintenanceLogs', { LogNo: no, LogDate: date, LoggedBy: user.UserID, LoggedOn: new Date(), VendorTeam: d.VendorTeam || user.Department || '',
-                                 ComponentIDs: JSON.stringify(ids), RepairedIDs: JSON.stringify(repaired), WorkDone: d.WorkDone,
+                                 ComponentIDs: JSON.stringify(ids), RepairedIDs: JSON.stringify(repaired), WorkDone: d.WorkDone || '', PartWork: JSON.stringify(work),
                                  ChecklistFileId: saved.getId(), ChecklistName: name, ChecklistType: file.type, Status: MLOG.SUBMITTED });
   audit(user.UserID, 'logMaintenance', no, { parts: ids.length });
   queueMail('MAINTENANCE_LOGGED', no, getSetting('RTGTeamMail', ''), '', 'Heater maintenance logged: ' + no + ' (' + ids.length + ' parts)',
-    mailHtml_('Maintenance logged by ' + user.Name, [['Log', no], ['Date', date], ['Work done', d.WorkDone]]
-      .concat(ids.map(function (id) { return [id, due[id].ComponentName + (repaired.indexOf(id) >= 0 ? ' (repaired)' : '')]; })),
+    mailHtml_('Maintenance logged by ' + user.Name, [['Log', no], ['Date', date], ['Work done', d.WorkDone || '']]
+      .concat(ids.map(function (id) { return [id, due[id].ComponentName + (repaired.indexOf(id) >= 0 ? ' (repaired)' : '') + (work[id] ? ': ' + work[id] : '')]; })),
       'Please check the parts and the checklist in the app, then verify the log so the parts can be issued again.'));
   return { LogNo: no };
 }
@@ -78,9 +87,9 @@ function listMaintenanceLogs(user) {
   var names = {};
   readTable('Components').forEach(function (c) { names[c.ComponentID] = c.ComponentName; });
   return readTable('MaintenanceLogs').map(function (l) {
-    var ids = parseList_(l.ComponentIDs);
+    var ids = parseList_(l.ComponentIDs), work = parseObj_(l.PartWork);
     return { LogNo: l.LogNo, LogDate: l.LogDate, LoggedBy: l.LoggedBy, LoggedByName: users[l.LoggedBy] || l.LoggedBy, LoggedOn: l.LoggedOn, VendorTeam: l.VendorTeam,
-             parts: ids.map(function (id) { return { ComponentID: id, ComponentName: names[id] || '' }; }), repaired: parseList_(l.RepairedIDs),
+             parts: ids.map(function (id) { return { ComponentID: id, ComponentName: names[id] || '', work: work[id] || '' }; }), repaired: parseList_(l.RepairedIDs),
              WorkDone: l.WorkDone, ChecklistName: l.ChecklistName, Status: l.Status, VerifiedBy: users[l.VerifiedBy] || l.VerifiedBy, VerifiedOn: l.VerifiedOn, RTGRemark: l.RTGRemark };
   }).reverse();
 }

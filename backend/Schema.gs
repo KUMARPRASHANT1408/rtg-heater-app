@@ -176,7 +176,8 @@ var SCHEMA = {
     "Status",
     "VerifiedBy",
     "VerifiedOn",
-    "RTGRemark"
+    "RTGRemark",
+    "PartWork"
   ],
   "Consumables": [
     "ItemID",
