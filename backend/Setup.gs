@@ -7,6 +7,9 @@ var DEFAULT_SETTINGS = [
   ['OverdueTo', '', 'To list for overdue heater mails (comma separated).'],
   ['OverdueCC', '', 'CC list for overdue heater mails.'],
   ['RejectCC', '', 'CC list for request rejection mails.'],
+  ['FMHODMail', '', 'FM HOD mail address. Copied on mails about heater parts not returned or missing (bill remarks).'],
+  ['RTGHODMail', '', 'RTG HOD mail address for the same mails. If empty, users with the HOD role are copied.'],
+  ['BillMailCC', '', 'Anyone else to copy on the not returned / missing part mails (comma separated).'],
   ['OverdueMailHour', '9', 'Hour of day (0-23) the overdue reminders go out. Run installTriggers() after changing.'],
   ['ExportTime', '18', 'Hour of day (0-23) the Sheet is mailed to CompanyInbox.'],
   ['AppUrl', '', 'GitHub Pages address of the app, used for links in mails.']
@@ -93,10 +96,15 @@ function clearTestData() {
   // Put lots that were split on issue (e.g. 8 of 10 cross beams, row "14-D-CB/HEATER_0001") back into their original row.
   var comps = sheet_('Components'), cv = comps.getDataRange().getValues(), h = cv[0];
   var idCol = h.indexOf('ComponentID'), qtyCol = h.indexOf('Qty'), remCol = h.indexOf('Remarks'), back = {};
+  var ids = {};
+  for (var j = 1; j < cv.length; j++) ids[String(cv[j][idCol])] = true;
   for (var i = cv.length - 1; i >= 1; i--) {
+    // Split rows are named "<lot ID>/<ticket>". Their remark may since say "Missing on return of ...", so go by the ID.
+    var id = String(cv[i][idCol]), cut = id.lastIndexOf('/'), base = cut > 0 ? id.slice(0, cut) : '';
     var m = /^Split from (.+)$/.exec(String(cv[i][remCol] || ''));
-    if (m && String(cv[i][idCol]).indexOf('/') > 0) {
-      back[m[1]] = (back[m[1]] || 0) + (Number(cv[i][qtyCol]) || 0);
+    if (m || (base && ids[base] && /^[A-Z]+_?\d+$/.test(id.slice(cut + 1)))) {
+      base = m ? m[1] : base;
+      back[base] = (back[base] || 0) + (Number(cv[i][qtyCol]) || 0);
       comps.deleteRows(i + 1, 1);
     }
   }
@@ -104,6 +112,8 @@ function clearTestData() {
     var patch = { Status: STATUS.IN_STORE, Condition: CONDITION.OK, CurrentTicket: '', CurrentConveyor: '', MaintenanceStatus: MAINT.OK,
                   JointsSinceMaintenance: 0, LastInspected: '' };
     if (back[c.ComponentID]) patch.Qty = (Number(c.Qty) || 0) + back[c.ComponentID];
+    // Remarks the app wrote during testing (missing, damaged, split) go too; remarks people typed stay.
+    if (/^(Missing on return of|Damaged on|Split from) /.test(String(c.Remarks || ''))) patch.Remarks = '';
     return patch;
   });
   Logger.log('Test data cleared. Numbers start again at 0001.');

@@ -39,6 +39,20 @@ function contacts_(req) {
   return [req.FMEmail, raiser && raiser.Email].filter(function (x) { return x; }).join(',');
 }
 
+// The standard bill remark for a result, with anything RTG typed added after it.
+function billRemark_(result, typed) {
+  var std = BILL_REMARK[result] || '';
+  typed = String(typed || '').trim();
+  if (!std) return typed;
+  return typed && typed.indexOf(std) < 0 ? std + ' ' + typed : std;
+}
+
+// Who is copied on bill remarks: the FM HOD, the RTG HOD and anyone else in the settings.
+function billCC_() {
+  return [getSetting('FMHODMail', ''), getSetting('RTGHODMail', '') || roleEmails_(['HOD']), getSetting('BillMailCC', '')]
+    .join(',').split(/[,;\s]+/).filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(',');
+}
+
 function itemsTable_(items) {
   return items.map(function (i) { return [i.ComponentID, i.ComponentName + (Number(i.QtyOut) > 1 ? ' x' + i.QtyOut : '')]; });
 }
@@ -240,14 +254,20 @@ function returnTicket(admin, d) {
   parseList_(d.items).forEach(function (i) { results[i.ComponentID] = i; });
   var outstanding = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn; });
   if (!outstanding.length) throw new Error('All components on this ticket are already returned.');
-  var now = new Date(), compPatch = {}, problems = [], stillOut = 0, returned = 0;
+  var now = new Date(), compPatch = {}, problems = [], notBack = [], stillOut = 0, returned = 0;
   var valid = ['OK', 'Damaged', 'Missing', 'Not returned'];
   outstanding.forEach(function (i) {
     var res = results[i.ComponentID];
     var result = res ? res.result : 'Not returned';
     if (valid.indexOf(result) < 0) throw new Error('Unknown result for ' + i.ComponentID + '.');
-    if (result === 'Not returned') { stillOut++; return; }
+    if (result === 'Not returned') {
+      stillOut++;
+      notBack.push(i);
+      results[i.ComponentID] = Object.assign({}, res || { ComponentID: i.ComponentID }, { row: { Remarks: billRemark_(result, res && res.remarks) } });
+      return;
+    }
     returned++;
+    if (result === 'Missing') res.remarks = billRemark_(result, res.remarks);
     if (result === 'OK') compPatch[i.ComponentID] = { Status: STATUS.IN_STORE, MaintenanceStatus: MAINT.DUE, CurrentTicket: '', CurrentConveyor: '' };
     if (result === 'Damaged') compPatch[i.ComponentID] = { Status: STATUS.IN_STORE, Condition: CONDITION.DAMAGED, MaintenanceStatus: MAINT.DUE, CurrentTicket: '', CurrentConveyor: '', Remarks: res.remarks || 'Damaged on ' + tk.TicketNo };
     if (result === 'Missing') compPatch[i.ComponentID] = { Status: STATUS.MISSING, CurrentConveyor: '', Remarks: 'Missing on return of ' + tk.TicketNo };
@@ -268,9 +288,11 @@ function returnTicket(admin, d) {
     appendRow('Issues', { IssueNo: issueNo, TicketNo: tk.TicketNo, RaisedBy: admin.UserID, RaisedOn: now, Description: d.issueText,
                           AffectedComponents: JSON.stringify(problems), Status: 'Open' });
     status = TKT.ISSUE;
-    queueMail('HEATER_ISSUE', tk.TicketNo, contacts_(r), getSetting('OverdueCC', ''), 'Ticket ' + tk.TicketNo + ': damaged or missing heater parts (' + issueNo + ')',
+    var missing = problems.some(function (p) { return p.result === 'Missing'; });
+    queueMail('HEATER_ISSUE', tk.TicketNo, contacts_(r), [getSetting('OverdueCC', ''), missing ? billCC_() : ''].filter(String).join(','), 'Ticket ' + tk.TicketNo + ': damaged or missing heater parts (' + issueNo + ')',
       mailHtml_('Ticket ' + tk.TicketNo + ' has an issue', [['Conveyor', tk.ConveyorName], ['Vendor team', r.VendorTeam], ['Issue', d.issueText]]
-        .concat(problems.map(function (p) { return [p.id + ' ' + p.name, p.result + (p.remarks ? ': ' + p.remarks : '')]; })),
+        .concat(problems.map(function (p) { return [p.id + ' ' + p.name, p.result + (p.remarks ? ': ' + p.remarks : '')]; }))
+        .concat(missing ? [['Remarks', BILL_REMARK.Missing]] : []),
         'The following heater parts were returned damaged or are missing. Kindly give an explanation: log in to the app, open ticket ' + tk.TicketNo +
         ', and write what happened and the action you will take. The ticket stays open until the RTG Store accepts it.'));
   } else {
@@ -285,6 +307,12 @@ function returnTicket(admin, d) {
     updateRows('TransferRequests', function (x) {
       return x.TicketNo === tk.TicketNo && ['Approved', 'Rejected', 'Cancelled'].indexOf(x.Status) < 0 ? { Status: 'Cancelled' } : null;
     });
+  }
+  if (notBack.length) {
+    queueMail('NOT_RETURNED', tk.TicketNo, contacts_(r), billCC_(), 'Ticket ' + tk.TicketNo + ': heater parts not returned (' + notBack.length + ')',
+      mailHtml_('Ticket ' + tk.TicketNo + ': parts not returned to the RTG Store', [['Conveyor', tk.ConveyorName], ['Vendor team', r.VendorTeam], ['Return by', tk.ExpectedReturnDate]]
+        .concat(itemsTable_(notBack)).concat([['Remarks', BILL_REMARK['Not returned']]]),
+        'These components have not come back to the RTG Store yet. Kindly return them. ' + BILL_REMARK['Not returned']));
   }
   audit(admin.UserID, 'returnTicket', tk.TicketNo, { returned: returned, stillOut: stillOut, problems: problems.length });
   if (status === TKT.CLOSED) {

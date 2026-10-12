@@ -859,7 +859,7 @@
         d.items.map(function (i) {
           var cond = i.ConditionIn;
           var pill = !cond ? (i.ReturnDeclaredOn ? '<span class="pill warn">Handed back, to inspect</span>' : '<span class="pill info">On site</span>') : cond === 'OK' ? '<span class="pill good">OK</span>' : '<span class="pill bad">' + esc(cond) + '</span>';
-          return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (i.Remarks ? '<div class="small muted">' + esc(i.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(i.QtyOut) + '</td><td>' + pill + '</td></tr>';
+          return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (i.Remarks ? '<div class="small' + (isBillRemark(i.Remarks) ? '" style="color:var(--bad)' : ' muted') + '">' + esc(i.Remarks) + '</div>' : '') + '</td><td class="num">' + esc(i.QtyOut) + '</td><td>' + pill + '</td></tr>';
         }).join('') + '</tbody></table></div>' :
         '<div class="table-wrap"><table><thead><tr><th>Component</th><th class="num">Qty</th></tr></thead><tbody>' +
         (r.RequestedComponents.map(function (c) { return '<tr><td>' + esc(c.name) + '</td><td class="num">' + esc(c.qty) + '</td></tr>'; }).join('') ||
@@ -955,14 +955,14 @@
     }
     if (outstanding.length && ['Issued', 'Partly returned', 'Returned with issue'].indexOf(status) >= 0) {
       return '<div class="card stack" style="margin-top:16px"><h2>Return &amp; inspection</h2>' +
-        '<p class="muted small">Parts FM handed back are set to OK. Change any that are damaged or missing. Anything left as "Not returned" stays on site and keeps the ticket open.</p>' +
+        '<p class="muted small">Parts FM handed back are set to OK. Change any that are damaged or missing. Anything left as "Not returned" stays on site and keeps the ticket open. For "Not returned" and "Missing" the bill remark is filled in by itself and mailed to FM, with the FM and RTG HODs in CC.</p>' +
         '<form id="form-return" class="stack"><div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" id="all-ok">Mark all OK</button></div>' +
         '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th>Result</th><th>Remarks</th></tr></thead><tbody>' +
         outstanding.map(function (i, n) {
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (Number(i.QtyOut) > 1 ? ' x' + esc(i.QtyOut) : '') + '</td><td><select data-res="' + n + '">' +
             ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option' + (i.ReturnDeclaredOn && o === 'OK' ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' +
             (i.ReturnDeclaredOn ? '<div class="small muted">FM handed back ' + esc(String(i.ReturnDeclaredOn).slice(0, 10)) + '</div>' : '') + '</td>' +
-            '<td><input data-rem="' + n + '" placeholder="Optional"></td></tr>';
+            '<td><textarea data-rem="' + n + '" rows="1" placeholder="Optional">' + esc(i.Remarks || '') + '</textarea></td></tr>';
         }).join('') + '</tbody></table></div>' +
         '<label id="issue-box" class="hidden">Describe the damage / missing parts (mailed to the FM team asking for an explanation)<textarea name="issueText" rows="3"></textarea></label>' +
         '<div class="alert error hidden" id="return-error"></div>' +
@@ -1036,8 +1036,17 @@
         $('#return-btn').textContent = problem ? 'Raise issue & mail FM' : pending ? 'Save partial return' : 'Close ticket';
         $('#return-btn').classList.toggle('danger', problem);
       };
-      ret.addEventListener('change', update);
-      $('#all-ok').addEventListener('click', function () { ret.querySelectorAll('[data-res]').forEach(function (s) { s.value = 'OK'; }); update(); });
+      // "Not returned" and "Missing" bring their bill remark. Switching back to OK or Damaged takes it out again.
+      var autoRemark = function (n) {
+        var box = $('[data-rem="' + n + '"]', ret), std = BILL_REMARK[$('[data-res="' + n + '"]', ret).value] || '';
+        var typed = box.value;
+        Object.keys(BILL_REMARK).forEach(function (k) { typed = typed.replace(BILL_REMARK[k], ''); });
+        typed = typed.trim();
+        box.value = std ? std + (typed ? ' ' + typed : '') : typed;
+      };
+      outstanding.forEach(function (i, n) { autoRemark(n); });
+      ret.addEventListener('change', function (e) { if (e.target.dataset.res !== undefined) autoRemark(e.target.dataset.res); update(); });
+      $('#all-ok').addEventListener('click', function () { ret.querySelectorAll('[data-res]').forEach(function (s) { s.value = 'OK'; autoRemark(s.dataset.res); }); update(); });
       update();
       ret.addEventListener('submit', function (e) {
         e.preventDefault();
@@ -1607,6 +1616,10 @@
     }).catch(function (err) { if (win) win.close(); toast(err.message); }).then(function () { busy(btn, false); });
   }
 
+  function isBillRemark(text) {
+    return Object.keys(BILL_REMARK).some(function (k) { return String(text || '').indexOf(BILL_REMARK[k]) === 0; });
+  }
+
   function renderMaintenance(arg, params) {
     if (!canMaintain()) { view.innerHTML = '<div class="card"><h2>Maintenance</h2><p class="muted">This page is for the RTG team and RTG Vendor.</p></div>'; return; }
     var show = params.f || (!isAdmin() ? 'log' : 'verify');
@@ -1653,13 +1666,14 @@
                 var damaged = c.Condition !== 'OK';
                 return '<tr><td style="width:36px"><input type="checkbox" data-part="' + esc(c.ComponentID) + '" data-g="' + gi + '" style="min-height:auto"></td><td><b>' + esc(c.ComponentID) + '</b></td><td>' + esc(c.ComponentName) +
                   (c.Remarks ? '<div class="small muted">' + esc(c.Remarks) + '</div>' : '') + '</td><td>' +
-                  (damaged ? '<span class="pill bad">' + esc(c.Condition) + '</span> <label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-repaired="' + esc(c.ComponentID) + '" style="min-height:auto"> Repaired</label>' : '<span class="pill good">OK</span>') +
-                  '</td><td class="num small muted">' + esc(c.JointsSinceMaintenance) + ' joint(s)</td></tr>';
+                  (damaged ? '<span class="pill bad">' + esc(c.Condition) + '</span> <label class="small" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-repaired="' + esc(c.ComponentID) + '" style="min-height:auto"> Repaired</label>' : '<span class="small muted">Condition OK</span>') +
+                  '</td><td style="min-width:200px"><input data-work="' + esc(c.ComponentID) + '" maxlength="500" placeholder="What you did on this part"></td><td class="num small muted">' + esc(c.JointsSinceMaintenance) + ' joint(s)</td></tr>';
               }).join('') + '</tbody></table></div></details>';
           }).join('') + '</div>' +
           '<div class="card stack"><h2>2. What did you do?</h2><div class="row"><label>Date<input type="date" name="LogDate" required value="' + todayStr() + '" max="' + todayStr() + '"></label>' +
           '<label>Vendor team<input name="VendorTeam" value="' + esc(state.user.Department || '') + '"></label></div>' +
-          '<label>Work done<textarea name="WorkDone" rows="3" required placeholder="e.g. Cleaned platens, checked thermocouples and cables, replaced 2 bolts"></textarea></label></div>' +
+          '<label>Work done (for all parts)<textarea name="WorkDone" rows="3" placeholder="e.g. Cleaned platens, checked thermocouples and cables, replaced 2 bolts"></textarea></label>' +
+          '<p class="muted small">Write what you did on each part in step 1, or fill this in for all of them. Both is fine too.</p></div>' +
           '<div class="card stack"><h2>3. Attach the filled checklist</h2><p class="muted small">Take a clear photo of the signed checklist, or attach a PDF.</p>' +
           '<label>Checklist<input type="file" name="file" accept="image/*,application/pdf" required></label></div>' +
           '<div class="alert error hidden" id="mlog-error"></div><div class="actions"><span class="muted small" id="mlog-count">0 parts selected</span><button class="btn" type="submit">Send to RTG for checking</button></div></form>'
@@ -1669,8 +1683,8 @@
         html += '<div class="stack">' + (list.map(function (l) {
           return '<div class="card stack"><div class="model-head"><div><h2>' + esc(l.LogNo) + ' · ' + esc(l.LogDate) + '</h2><div class="small muted">Logged by ' + esc(l.LoggedByName) + (l.VendorTeam ? ' (' + esc(l.VendorTeam) + ')' : '') + ' on ' + esc(l.LoggedOn) + '</div></div>' +
             '<span class="pill ' + (MLOG_PILL[l.Status] || 'info') + '">' + esc(l.Status === 'Submitted' ? 'Waiting for RTG check' : l.Status) + '</span></div>' +
-            '<p>' + esc(l.WorkDone) + '</p>' +
-            '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + '</span>'; }).join('') + '</div>' +
+            (l.WorkDone ? '<p>' + esc(l.WorkDone) + '</p>' : '') +
+            '<div class="kv">' + l.parts.map(function (p) { return '<span><b>' + esc(p.ComponentID) + '</b> ' + esc(p.ComponentName) + (l.repaired.indexOf(p.ComponentID) >= 0 ? ' <span class="pill good">repaired</span>' : '') + (p.work ? '<span class="small muted" style="display:block">' + esc(p.work) + '</span>' : '') + '</span>'; }).join('') + '</div>' +
             (l.RTGRemark ? '<p class="small"><b>RTG:</b> ' + esc(l.RTGRemark) + (l.VerifiedBy ? ' <span class="muted">(' + esc(l.VerifiedBy) + ', ' + esc(l.VerifiedOn) + ')</span>' : '') + '</p>' : '') +
             '<div class="actions" style="justify-content:flex-start"><button class="btn secondary small" type="button" data-checklist="' + esc(l.LogNo) + '">View checklist</button>' +
             (isRtgTeam() && l.Status === 'Submitted' ? '<span style="flex:1"></span><button class="btn small danger" type="button" data-mreject="' + esc(l.LogNo) + '">Not OK</button><button class="btn small" type="button" data-mapprove="' + esc(l.LogNo) + '">Verified, ready to issue</button>' : '') +
@@ -1707,6 +1721,7 @@
         form.addEventListener('change', function (e) {
           if (e.target.dataset.group !== undefined) form.querySelectorAll('[data-g="' + e.target.dataset.group + '"]').forEach(function (x) { x.checked = e.target.checked; });
           if (e.target.dataset.repaired && e.target.checked) { var p = form.querySelector('[data-part="' + e.target.dataset.repaired + '"]'); if (p) p.checked = true; }
+          if (e.target.dataset.work && e.target.value.trim()) { var q = form.querySelector('[data-part="' + e.target.dataset.work + '"]'); if (q) q.checked = true; }
           count();
         });
         // Ticking the set box shouldn't also open/close it.
@@ -1717,9 +1732,12 @@
           var ids = Array.prototype.map.call(form.querySelectorAll('[data-part]:checked'), function (x) { return x.dataset.part; });
           var repaired = Array.prototype.map.call(form.querySelectorAll('[data-repaired]:checked'), function (x) { return x.dataset.repaired; });
           if (!ids.length) return showError($('#mlog-error'), new Error('Tick the parts you maintained.'));
+          var work = {};
+          ids.forEach(function (id) { var w = form.querySelector('[data-work="' + id + '"]').value.trim(); if (w) work[id] = w; });
+          if (!fd.WorkDone.trim() && Object.keys(work).length < ids.length) return showError($('#mlog-error'), new Error('Write what you did on each ticked part, or fill in "Work done" for all of them.'));
           busy(btn, true);
           readChecklist(form.file.files[0]).then(function (file) {
-            return API.call('logMaintenance', { ComponentIDs: ids, RepairedIDs: repaired, LogDate: fd.LogDate, VendorTeam: fd.VendorTeam, WorkDone: fd.WorkDone, file: file });
+            return API.call('logMaintenance', { ComponentIDs: ids, RepairedIDs: repaired, LogDate: fd.LogDate, VendorTeam: fd.VendorTeam, WorkDone: fd.WorkDone, PartWork: work, file: file });
           }).then(function (r) { location.hash = '#/maintenance?f=all'; toast('Log ' + r.LogNo + ' sent to RTG for checking'); })
             .catch(function (err) { showError($('#mlog-error'), err); busy(btn, false); });
         });

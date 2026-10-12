@@ -20,10 +20,17 @@ function masterTab_(tab) {
 function apiMasterList(d) {
   var t = masterTab_(d.tab);
   var rows = readTable(d.tab);
-  if (d.tab === 'Settings') rows = rows.filter(function (r) { return HIDDEN_SETTINGS.indexOf(r.Key) < 0; });
+  if (d.tab === 'Settings') rows = rows.filter(function (r) { return HIDDEN_SETTINGS.indexOf(r.Key) < 0; }).concat(newSettings_(rows));
   var out = { tab: d.tab, key: t.key, columns: SCHEMA[d.tab], fixed: t.fixed || null, rows: rows };
   if (d.tab === 'Conveyors') out.heaters = conveyorHeaters_(rows);
   return out;
+}
+
+// Settings added by a newer app version that this database doesn't have a row for yet. They show empty and are saved as new rows.
+function newSettings_(rows) {
+  var have = {};
+  rows.forEach(function (r) { have[r.Key] = true; });
+  return DEFAULT_SETTINGS.filter(function (x) { return !have[x[0]]; }).map(function (x) { return { Key: x[0], Value: x[1], Notes: x[2] }; });
 }
 
 // For each conveyor, the heaters the selection guide gives for its belt (or the models' ranges when there is no guide).
@@ -84,7 +91,9 @@ function apiMasterSave(admin, d) {
       clean[t.key] = key;
       patches[String(old[t.key])] = clean;
     } else if (t.fixed) {
-      errors.push(where + '"' + key + '" is not a setting.');
+      var def = d.tab === 'Settings' && DEFAULT_SETTINGS.filter(function (x) { return x[0] === key; })[0];
+      if (!def) return errors.push(where + '"' + key + '" is not a setting.');
+      adds.push({ Key: key, Value: clean.Value === undefined ? def[1] : clean.Value, Notes: def[2] });
     } else {
       clean[t.key] = key;
       adds.push(clean);

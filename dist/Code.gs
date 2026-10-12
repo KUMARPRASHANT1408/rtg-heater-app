@@ -23,10 +23,17 @@ function masterTab_(tab) {
 function apiMasterList(d) {
   var t = masterTab_(d.tab);
   var rows = readTable(d.tab);
-  if (d.tab === 'Settings') rows = rows.filter(function (r) { return HIDDEN_SETTINGS.indexOf(r.Key) < 0; });
+  if (d.tab === 'Settings') rows = rows.filter(function (r) { return HIDDEN_SETTINGS.indexOf(r.Key) < 0; }).concat(newSettings_(rows));
   var out = { tab: d.tab, key: t.key, columns: SCHEMA[d.tab], fixed: t.fixed || null, rows: rows };
   if (d.tab === 'Conveyors') out.heaters = conveyorHeaters_(rows);
   return out;
+}
+
+// Settings added by a newer app version that this database doesn't have a row for yet. They show empty and are saved as new rows.
+function newSettings_(rows) {
+  var have = {};
+  rows.forEach(function (r) { have[r.Key] = true; });
+  return DEFAULT_SETTINGS.filter(function (x) { return !have[x[0]]; }).map(function (x) { return { Key: x[0], Value: x[1], Notes: x[2] }; });
 }
 
 // For each conveyor, the heaters the selection guide gives for its belt (or the models' ranges when there is no guide).
@@ -87,7 +94,9 @@ function apiMasterSave(admin, d) {
       clean[t.key] = key;
       patches[String(old[t.key])] = clean;
     } else if (t.fixed) {
-      errors.push(where + '"' + key + '" is not a setting.');
+      var def = d.tab === 'Settings' && DEFAULT_SETTINGS.filter(function (x) { return x[0] === key; })[0];
+      if (!def) return errors.push(where + '"' + key + '" is not a setting.');
+      adds.push({ Key: key, Value: clean.Value === undefined ? def[1] : clean.Value, Notes: def[2] });
     } else {
       clean[t.key] = key;
       adds.push(clean);
@@ -965,6 +974,11 @@ function dailyExport() {
 var STATUS = { IN_STORE: 'In store', ISSUED: 'Issued', MISSING: 'Missing' };
 var CONDITION = { OK: 'OK', DAMAGED: 'Damaged', REPAIR: 'Under repair', SCRAPPED: 'Scrapped' };
 var MAINT = { OK: 'OK', DUE: 'Due' };
+// Remarks written by themselves on a return when a part is not back or is missing. The vendor's bill depends on them.
+var BILL_REMARK = {
+  'Not returned': 'Bills to be approved only after returning the component.',
+  'Missing': 'Bills to be approved after consulting RTG, and the spare cost is to be deducted from the vendor bill. Before approving the bill, kindly share the amount deducted.'
+};
 
 function num_(v) {
   var n = Number(v);
@@ -1312,7 +1326,7 @@ function daysBetween(fromStr, toStr) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
+  module.exports = { cureProfile: cureProfile, JOINT_STD: JOINT_STD, parseBelt: parseBelt, stepFor: stepFor, jointCalc: jointCalc, partModels: partModels, guideMatches: guideMatches, normRating: normRating, ratingNum_: ratingNum_, STATUS: STATUS, CONDITION: CONDITION, MAINT: MAINT, BILL_REMARK: BILL_REMARK, isSuitable: isSuitable, isUsable: isUsable, completeSets: completeSets, modelStats: modelStats, heaterSearch: heaterSearch, formatNumber: formatNumber, pickComponents: pickComponents, isOverdue: isOverdue, daysBetween: daysBetween };
 }
 
 
@@ -1334,6 +1348,12 @@ function checklistFolder_() {
   if (findOne('Settings', 'Key', 'ChecklistFolderId')) updateWhere('Settings', 'Key', 'ChecklistFolderId', { Value: folder.getId() });
   else appendRow('Settings', { Key: 'ChecklistFolderId', Value: folder.getId(), Notes: 'Google Drive folder for maintenance checklists (made automatically).' });
   return folder;
+}
+
+function parseObj_(v) {
+  if (!v) return {};
+  if (typeof v === 'object') return Array.isArray(v) ? {} : v;
+  try { var o = JSON.parse(String(v)); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; }
 }
 
 function pendingLogIds_(logs) {
@@ -1362,7 +1382,10 @@ function logMaintenance(user, d) {
   if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
-  required_(d, [['WorkDone', 'Work done']]);
+  // What was done on each part (d.PartWork = {ComponentID: text}). The general "work done" covers parts left blank.
+  var work = {}, given = parseObj_(d.PartWork);
+  ids.forEach(function (id) { var t = String(given[id] || '').trim(); if (t) work[id] = t.slice(0, 500); });
+  if (!String(d.WorkDone || '').trim() && Object.keys(work).length < ids.length) throw new Error('Write what you did on each part, or fill in "Work done" for all of them.');
   var date = String(d.LogDate || today()).slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > today()) throw new Error('Choose today or an earlier date.');
   var file = d.file || {};
@@ -1380,12 +1403,12 @@ function logMaintenance(user, d) {
   var name = no + ' checklist ' + date + '.' + (file.type === 'application/pdf' ? 'pdf' : file.type.split('/')[1].replace('jpeg', 'jpg'));
   var saved = checklistFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(file.data), file.type, name));
   appendRow('MaintenanceLogs', { LogNo: no, LogDate: date, LoggedBy: user.UserID, LoggedOn: new Date(), VendorTeam: d.VendorTeam || user.Department || '',
-                                 ComponentIDs: JSON.stringify(ids), RepairedIDs: JSON.stringify(repaired), WorkDone: d.WorkDone,
+                                 ComponentIDs: JSON.stringify(ids), RepairedIDs: JSON.stringify(repaired), WorkDone: d.WorkDone || '', PartWork: JSON.stringify(work),
                                  ChecklistFileId: saved.getId(), ChecklistName: name, ChecklistType: file.type, Status: MLOG.SUBMITTED });
   audit(user.UserID, 'logMaintenance', no, { parts: ids.length });
   queueMail('MAINTENANCE_LOGGED', no, getSetting('RTGTeamMail', ''), '', 'Heater maintenance logged: ' + no + ' (' + ids.length + ' parts)',
-    mailHtml_('Maintenance logged by ' + user.Name, [['Log', no], ['Date', date], ['Work done', d.WorkDone]]
-      .concat(ids.map(function (id) { return [id, due[id].ComponentName + (repaired.indexOf(id) >= 0 ? ' (repaired)' : '')]; })),
+    mailHtml_('Maintenance logged by ' + user.Name, [['Log', no], ['Date', date], ['Work done', d.WorkDone || '']]
+      .concat(ids.map(function (id) { return [id, due[id].ComponentName + (repaired.indexOf(id) >= 0 ? ' (repaired)' : '') + (work[id] ? ': ' + work[id] : '')]; })),
       'Please check the parts and the checklist in the app, then verify the log so the parts can be issued again.'));
   return { LogNo: no };
 }
@@ -1397,9 +1420,9 @@ function listMaintenanceLogs(user) {
   var names = {};
   readTable('Components').forEach(function (c) { names[c.ComponentID] = c.ComponentName; });
   return readTable('MaintenanceLogs').map(function (l) {
-    var ids = parseList_(l.ComponentIDs);
+    var ids = parseList_(l.ComponentIDs), work = parseObj_(l.PartWork);
     return { LogNo: l.LogNo, LogDate: l.LogDate, LoggedBy: l.LoggedBy, LoggedByName: users[l.LoggedBy] || l.LoggedBy, LoggedOn: l.LoggedOn, VendorTeam: l.VendorTeam,
-             parts: ids.map(function (id) { return { ComponentID: id, ComponentName: names[id] || '' }; }), repaired: parseList_(l.RepairedIDs),
+             parts: ids.map(function (id) { return { ComponentID: id, ComponentName: names[id] || '', work: work[id] || '' }; }), repaired: parseList_(l.RepairedIDs),
              WorkDone: l.WorkDone, ChecklistName: l.ChecklistName, Status: l.Status, VerifiedBy: users[l.VerifiedBy] || l.VerifiedBy, VerifiedOn: l.VerifiedOn, RTGRemark: l.RTGRemark };
   }).reverse();
 }
@@ -1512,6 +1535,20 @@ function escHtml_(v) {
 function contacts_(req) {
   var raiser = findOne('Users', 'UserID', req.RaisedBy);
   return [req.FMEmail, raiser && raiser.Email].filter(function (x) { return x; }).join(',');
+}
+
+// The standard bill remark for a result, with anything RTG typed added after it.
+function billRemark_(result, typed) {
+  var std = BILL_REMARK[result] || '';
+  typed = String(typed || '').trim();
+  if (!std) return typed;
+  return typed && typed.indexOf(std) < 0 ? std + ' ' + typed : std;
+}
+
+// Who is copied on bill remarks: the FM HOD, the RTG HOD and anyone else in the settings.
+function billCC_() {
+  return [getSetting('FMHODMail', ''), getSetting('RTGHODMail', '') || roleEmails_(['HOD']), getSetting('BillMailCC', '')]
+    .join(',').split(/[,;\s]+/).filter(function (x, i, a) { return x && a.indexOf(x) === i; }).join(',');
 }
 
 function itemsTable_(items) {
@@ -1715,14 +1752,20 @@ function returnTicket(admin, d) {
   parseList_(d.items).forEach(function (i) { results[i.ComponentID] = i; });
   var outstanding = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn; });
   if (!outstanding.length) throw new Error('All components on this ticket are already returned.');
-  var now = new Date(), compPatch = {}, problems = [], stillOut = 0, returned = 0;
+  var now = new Date(), compPatch = {}, problems = [], notBack = [], stillOut = 0, returned = 0;
   var valid = ['OK', 'Damaged', 'Missing', 'Not returned'];
   outstanding.forEach(function (i) {
     var res = results[i.ComponentID];
     var result = res ? res.result : 'Not returned';
     if (valid.indexOf(result) < 0) throw new Error('Unknown result for ' + i.ComponentID + '.');
-    if (result === 'Not returned') { stillOut++; return; }
+    if (result === 'Not returned') {
+      stillOut++;
+      notBack.push(i);
+      results[i.ComponentID] = Object.assign({}, res || { ComponentID: i.ComponentID }, { row: { Remarks: billRemark_(result, res && res.remarks) } });
+      return;
+    }
     returned++;
+    if (result === 'Missing') res.remarks = billRemark_(result, res.remarks);
     if (result === 'OK') compPatch[i.ComponentID] = { Status: STATUS.IN_STORE, MaintenanceStatus: MAINT.DUE, CurrentTicket: '', CurrentConveyor: '' };
     if (result === 'Damaged') compPatch[i.ComponentID] = { Status: STATUS.IN_STORE, Condition: CONDITION.DAMAGED, MaintenanceStatus: MAINT.DUE, CurrentTicket: '', CurrentConveyor: '', Remarks: res.remarks || 'Damaged on ' + tk.TicketNo };
     if (result === 'Missing') compPatch[i.ComponentID] = { Status: STATUS.MISSING, CurrentConveyor: '', Remarks: 'Missing on return of ' + tk.TicketNo };
@@ -1743,9 +1786,11 @@ function returnTicket(admin, d) {
     appendRow('Issues', { IssueNo: issueNo, TicketNo: tk.TicketNo, RaisedBy: admin.UserID, RaisedOn: now, Description: d.issueText,
                           AffectedComponents: JSON.stringify(problems), Status: 'Open' });
     status = TKT.ISSUE;
-    queueMail('HEATER_ISSUE', tk.TicketNo, contacts_(r), getSetting('OverdueCC', ''), 'Ticket ' + tk.TicketNo + ': damaged or missing heater parts (' + issueNo + ')',
+    var missing = problems.some(function (p) { return p.result === 'Missing'; });
+    queueMail('HEATER_ISSUE', tk.TicketNo, contacts_(r), [getSetting('OverdueCC', ''), missing ? billCC_() : ''].filter(String).join(','), 'Ticket ' + tk.TicketNo + ': damaged or missing heater parts (' + issueNo + ')',
       mailHtml_('Ticket ' + tk.TicketNo + ' has an issue', [['Conveyor', tk.ConveyorName], ['Vendor team', r.VendorTeam], ['Issue', d.issueText]]
-        .concat(problems.map(function (p) { return [p.id + ' ' + p.name, p.result + (p.remarks ? ': ' + p.remarks : '')]; })),
+        .concat(problems.map(function (p) { return [p.id + ' ' + p.name, p.result + (p.remarks ? ': ' + p.remarks : '')]; }))
+        .concat(missing ? [['Remarks', BILL_REMARK.Missing]] : []),
         'The following heater parts were returned damaged or are missing. Kindly give an explanation: log in to the app, open ticket ' + tk.TicketNo +
         ', and write what happened and the action you will take. The ticket stays open until the RTG Store accepts it.'));
   } else {
@@ -1760,6 +1805,12 @@ function returnTicket(admin, d) {
     updateRows('TransferRequests', function (x) {
       return x.TicketNo === tk.TicketNo && ['Approved', 'Rejected', 'Cancelled'].indexOf(x.Status) < 0 ? { Status: 'Cancelled' } : null;
     });
+  }
+  if (notBack.length) {
+    queueMail('NOT_RETURNED', tk.TicketNo, contacts_(r), billCC_(), 'Ticket ' + tk.TicketNo + ': heater parts not returned (' + notBack.length + ')',
+      mailHtml_('Ticket ' + tk.TicketNo + ': parts not returned to the RTG Store', [['Conveyor', tk.ConveyorName], ['Vendor team', r.VendorTeam], ['Return by', tk.ExpectedReturnDate]]
+        .concat(itemsTable_(notBack)).concat([['Remarks', BILL_REMARK['Not returned']]]),
+        'These components have not come back to the RTG Store yet. Kindly return them. ' + BILL_REMARK['Not returned']));
   }
   audit(admin.UserID, 'returnTicket', tk.TicketNo, { returned: returned, stillOut: stillOut, problems: problems.length });
   if (status === TKT.CLOSED) {
@@ -4212,7 +4263,8 @@ var SCHEMA = {
     "Status",
     "VerifiedBy",
     "VerifiedOn",
-    "RTGRemark"
+    "RTGRemark",
+    "PartWork"
   ],
   "Consumables": [
     "ItemID",
@@ -4297,6 +4349,9 @@ var DEFAULT_SETTINGS = [
   ['OverdueTo', '', 'To list for overdue heater mails (comma separated).'],
   ['OverdueCC', '', 'CC list for overdue heater mails.'],
   ['RejectCC', '', 'CC list for request rejection mails.'],
+  ['FMHODMail', '', 'FM HOD mail address. Copied on mails about heater parts not returned or missing (bill remarks).'],
+  ['RTGHODMail', '', 'RTG HOD mail address for the same mails. If empty, users with the HOD role are copied.'],
+  ['BillMailCC', '', 'Anyone else to copy on the not returned / missing part mails (comma separated).'],
   ['OverdueMailHour', '9', 'Hour of day (0-23) the overdue reminders go out. Run installTriggers() after changing.'],
   ['ExportTime', '18', 'Hour of day (0-23) the Sheet is mailed to CompanyInbox.'],
   ['AppUrl', '', 'GitHub Pages address of the app, used for links in mails.']
@@ -4383,10 +4438,15 @@ function clearTestData() {
   // Put lots that were split on issue (e.g. 8 of 10 cross beams, row "14-D-CB/HEATER_0001") back into their original row.
   var comps = sheet_('Components'), cv = comps.getDataRange().getValues(), h = cv[0];
   var idCol = h.indexOf('ComponentID'), qtyCol = h.indexOf('Qty'), remCol = h.indexOf('Remarks'), back = {};
+  var ids = {};
+  for (var j = 1; j < cv.length; j++) ids[String(cv[j][idCol])] = true;
   for (var i = cv.length - 1; i >= 1; i--) {
+    // Split rows are named "<lot ID>/<ticket>". Their remark may since say "Missing on return of ...", so go by the ID.
+    var id = String(cv[i][idCol]), cut = id.lastIndexOf('/'), base = cut > 0 ? id.slice(0, cut) : '';
     var m = /^Split from (.+)$/.exec(String(cv[i][remCol] || ''));
-    if (m && String(cv[i][idCol]).indexOf('/') > 0) {
-      back[m[1]] = (back[m[1]] || 0) + (Number(cv[i][qtyCol]) || 0);
+    if (m || (base && ids[base] && /^[A-Z]+_?\d+$/.test(id.slice(cut + 1)))) {
+      base = m ? m[1] : base;
+      back[base] = (back[base] || 0) + (Number(cv[i][qtyCol]) || 0);
       comps.deleteRows(i + 1, 1);
     }
   }
@@ -4394,6 +4454,8 @@ function clearTestData() {
     var patch = { Status: STATUS.IN_STORE, Condition: CONDITION.OK, CurrentTicket: '', CurrentConveyor: '', MaintenanceStatus: MAINT.OK,
                   JointsSinceMaintenance: 0, LastInspected: '' };
     if (back[c.ComponentID]) patch.Qty = (Number(c.Qty) || 0) + back[c.ComponentID];
+    // Remarks the app wrote during testing (missing, damaged, split) go too; remarks people typed stay.
+    if (/^(Missing on return of|Damaged on|Split from) /.test(String(c.Remarks || ''))) patch.Remarks = '';
     return patch;
   });
   Logger.log('Test data cleared. Numbers start again at 0001.');
