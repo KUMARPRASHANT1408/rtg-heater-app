@@ -296,17 +296,13 @@ var SESSION_SECONDS = 6 * 60 * 60; // Apps Script cache maximum
 var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
-// RTG: the store team. RTG Vendor: the store's own contractor, who also maintains the heaters and keeps the stock.
-var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
+// RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
+var TEAMS = ['FM', 'Vendor', 'RTG'];
 
 // Who may do what. Admins may do everything.
 function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
-// Sees the heater and consumable stock, and issues and takes back at the store.
-function isStoreUser_(u) { return isAdminUser_(u) || (!!u && (u.Team === 'RTG' || u.Team === 'RTG Vendor')); }
-// Approves and rejects requests and closes issues.
+// The RTG team runs the store: sees and changes the stock, approves, issues, takes back and maintains.
 function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
-// Changes stock: consumable entries and uploads, and heater part maintenance, repair, scrap and found.
-function canUpdateStock_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;
@@ -399,16 +395,14 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
                  'maintenanceDue', 'listMaintenanceLogs', 'getChecklist', 'masterList', 'adminLog'];
 
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
-// STORE: RTG and RTG Vendor (see stock, issue, take back). RTG: the RTG team (approve). STOCK: RTG Vendor (change stock).
-function STORE(u) { return isStoreUser_(u); }
+// RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
 function RTG(u) { return isRtgTeam_(u); }
-function STOCK(u) { return canUpdateStock_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
   changePassword: { roles: null,  run: function (u, d) { return changePassword(u, d.oldPassword, d.newPassword); } },
   lookups:        { roles: null,  run: function () { return apiLookups(); } },
-  heaterSearch:   { allow: STORE, run: function (u, d) { return apiHeaterSearch(d); } },
-  components:     { allow: STORE, run: function (u, d) { return apiComponents(d); } },
+  heaterSearch:   { allow: RTG,   run: function (u, d) { return apiHeaterSearch(d); } },
+  components:     { allow: RTG,   run: function (u, d) { return apiComponents(d); } },
   listUsers:      { roles: ADMIN, run: function () { return listUsers(); } },
   saveUser:       { roles: ADMIN, run: function (u, d) { return saveUser(u, d); } },
   resetPassword:  { roles: ADMIN, run: function (u, d) { return resetPassword(u, d.UserID); } },
@@ -418,30 +412,30 @@ var ACTIONS = {
   getRequest:     { roles: null,  run: function (u, d) { return getRequest(u, d); } },
   dashboard:      { roles: null,  run: function (u) { return dashboard(u); } },
   decideRequest:  { allow: RTG,   run: function (u, d) { return decideRequest(u, d); } },
-  issueTicket:    { allow: STORE, run: function (u, d) { return issueTicket(u, d); } },
-  returnTicket:   { allow: STORE, run: function (u, d) { return returnTicket(u, d); } },
+  issueTicket:    { allow: RTG,   run: function (u, d) { return issueTicket(u, d); } },
+  returnTicket:   { allow: RTG,   run: function (u, d) { return returnTicket(u, d); } },
   closeIssue:     { allow: RTG,   run: function (u, d) { return closeIssue(u, d); } },
   declareReturn:  { roles: null,  run: function (u, d) { return declareReturn(u, d); } },
   explainIssue:   { roles: null,  run: function (u, d) { return explainIssue(u, d); } },
-  maintenance:    { allow: STOCK, run: function (u, d) { return completeMaintenance(u, d); } },
-  markFound:      { allow: STOCK, run: function (u, d) { return markFound(u, d); } },
+  maintenance:    { allow: RTG,   run: function (u, d) { return completeMaintenance(u, d); } },
+  markFound:      { allow: RTG,   run: function (u, d) { return markFound(u, d); } },
   raiseTransfer:  { roles: null,  run: function (u, d) { return raiseTransfer(u, d); } },
   decideTransfer: { roles: null,  run: function (u, d) { return decideTransfer(u, d); } },
   listTransfers:  { roles: null,  run: function (u) { return listTransfers(u); } },
-  listConsumables:          { allow: STORE, run: function () { return listConsumables(); } },
-  consumableDetail:         { allow: STORE, run: function (u, d) { return consumableDetail(d); } },
+  listConsumables:          { allow: RTG,   run: function () { return listConsumables(); } },
+  consumableDetail:         { allow: RTG,   run: function (u, d) { return consumableDetail(d); } },
   consumableItems:          { roles: null,  run: function () { return consumableItems(); } },
-  saveConsumable:           { allow: STOCK, run: function (u, d) { return saveConsumable(u, d); } },
-  stockEntry:               { allow: STOCK, run: function (u, d) { return stockEntry(u, d); } },
-  uploadStock:              { allow: STOCK, run: function (u, d) { return uploadStock(u, d); } },
+  saveConsumable:           { allow: RTG,   run: function (u, d) { return saveConsumable(u, d); } },
+  stockEntry:               { allow: RTG,   run: function (u, d) { return stockEntry(u, d); } },
+  uploadStock:              { allow: RTG,   run: function (u, d) { return uploadStock(u, d); } },
   raiseConsumableRequest:   { roles: null,  run: function (u, d) { return raiseConsumableRequest(u, d); } },
   listConsumableRequests:   { roles: null,  run: function (u) { return listConsumableRequests(u); } },
   decideConsumableRequest:  { allow: RTG,   run: function (u, d) { return decideConsumableRequest(u, d); } },
-  issueConsumable:          { allow: STORE, run: function (u, d) { return issueConsumable(u, d); } },
+  issueConsumable:          { allow: RTG,   run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
-  listMaintenanceLogs:      { allow: STORE, run: function (u) { return listMaintenanceLogs(u); } },
-  getChecklist:             { allow: STORE, run: function (u, d) { return getChecklist(u, d); } },
+  listMaintenanceLogs:      { allow: RTG,   run: function (u) { return listMaintenanceLogs(u); } },
+  getChecklist:             { allow: RTG,   run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
   masterList:               { roles: ADMIN, run: function (u, d) { return apiMasterList(d); } },
   masterSave:               { roles: ADMIN, run: function (u, d) { return apiMasterSave(u, d); } },
@@ -731,7 +725,7 @@ function listConsumableRequests(user) {
   readTable('Consumables').forEach(function (i) { items[i.ItemID] = i; });
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
-  return readTable('ConsumableRequests').filter(function (r) { return !user || isStoreUser_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
+  return readTable('ConsumableRequests').filter(function (r) { return !user || isRtgTeam_(user) || r.RaisedBy === user.UserID; }).map(function (r) {
     var it = items[r.ItemID] || {};
     return Object.assign({}, r, { ItemName: it.ItemName || r.ItemID, Unit: it.Unit || '', RaisedByName: users[r.RaisedBy] || r.RaisedBy });
   }).reverse();
@@ -1374,16 +1368,12 @@ if (typeof module !== 'undefined') {
 
 
 // ===== Maintenance.gs =====
-// Heater maintenance by the RTG Vendor team: they log which parts they maintained each day and attach the
+// Heater maintenance by the RTG team: they log which parts they maintained each day and attach the
 // filled checklist; the RTG team verifies the log, and only then the parts become ready to issue again.
 
 var MLOG = { SUBMITTED: 'Submitted', VERIFIED: 'Verified', REJECTED: 'Rejected' };
 var CHECKLIST_MAX_BYTES = 6 * 1024 * 1024;
 var CHECKLIST_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-
-function canLogMaintenance_(user) {
-  return user.Role === 'Admin' || user.Team === 'RTG Vendor';
-}
 
 // Folder in the owner's Google Drive for checklist files. Created on first use (or by setup).
 function checklistFolder_() {
@@ -1408,7 +1398,7 @@ function pendingLogIds_(logs) {
 // Every part in the store that can be maintained: "due" after a joint, or due for routine maintenance.
 // Each says whether a log for it is already waiting for RTG.
 function maintenanceDue(user) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var models = {}, pairs = {};
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; pairs[m.ModelID] = splitIds_(m.MadeFrom).join(' + '); });
   var pending = pendingLogIds_(readTable('MaintenanceLogs'));
@@ -1420,7 +1410,7 @@ function maintenanceDue(user) {
 }
 
 function logMaintenance(user, d) {
-  if (!canLogMaintenance_(user)) throw new Error('Only the maintenance vendor team can log maintenance.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var ids = parseList_(d.ComponentIDs);
   if (!ids.length) throw new Error('Choose the parts you maintained.');
   required_(d, [['WorkDone', 'Work done']]);
@@ -1452,7 +1442,7 @@ function logMaintenance(user, d) {
 }
 
 function listMaintenanceLogs(user) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var users = {};
   readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
   var names = {};
@@ -1466,7 +1456,7 @@ function listMaintenanceLogs(user) {
 }
 
 function getChecklist(user, d) {
-  if (!isStoreUser_(user)) throw new Error('You do not have permission for this.');
+  if (!isRtgTeam_(user)) throw new Error('You do not have permission for this.');
   var l = findOne('MaintenanceLogs', 'LogNo', d.LogNo);
   if (!l || !l.ChecklistFileId) throw new Error('No checklist for this log.');
   var blob = DriveApp.getFileById(l.ChecklistFileId).getBlob();
@@ -1668,7 +1658,7 @@ function getRequest(user, d) {
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
   out.belt = beltText_(r);
   // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
-  if (isStoreUser_(user) && r.Status === REQ.PENDING) {
+  if (isRtgTeam_(user) && r.Status === REQ.PENDING) {
     var hd = heaterData_();
     var found = r.BeltWidth_mm ? heaterSearch(hd, r.BeltWidth_mm, r.BeltRating_Nmm, r.Plies) : { suitable: [] };
     var stats = {};
@@ -1678,7 +1668,7 @@ function getRequest(user, d) {
       return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
     }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
   }
-  if (isStoreUser_(user) && tk && tk.Status === TKT.AWAITING) {
+  if (isRtgTeam_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
     out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
@@ -1942,7 +1932,7 @@ function dashboard(user) {
   var reqs = listRequests();
   var transfers = user ? listTransfers(user) : [];
   function count(fn) { return reqs.filter(fn).length; }
-  var comps = readTable('Components'), store = !user || isStoreUser_(user);
+  var comps = readTable('Components'), store = !user || isRtgTeam_(user);
   return {
     pending: count(function (r) { return r.Status === REQ.PENDING; }),
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),

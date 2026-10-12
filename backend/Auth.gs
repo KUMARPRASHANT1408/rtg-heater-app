@@ -4,17 +4,13 @@ var SESSION_SECONDS = 6 * 60 * 60; // Apps Script cache maximum
 var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
-// RTG: the store team. RTG Vendor: the store's own contractor, who also maintains the heaters and keeps the stock.
-var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
+// RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
+var TEAMS = ['FM', 'Vendor', 'RTG'];
 
 // Who may do what. Admins may do everything.
 function isAdminUser_(u) { return !!u && u.Role === 'Admin'; }
-// Sees the heater and consumable stock, and issues and takes back at the store.
-function isStoreUser_(u) { return isAdminUser_(u) || (!!u && (u.Team === 'RTG' || u.Team === 'RTG Vendor')); }
-// Approves and rejects requests and closes issues.
+// The RTG team runs the store: sees and changes the stock, approves, issues, takes back and maintains.
 function isRtgTeam_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG'); }
-// Changes stock: consumable entries and uploads, and heater part maintenance, repair, scrap and found.
-function canUpdateStock_(u) { return isAdminUser_(u) || (!!u && u.Team === 'RTG Vendor'); }
 
 function hashPassword(password, salt) {
   var value = salt + ':' + password;

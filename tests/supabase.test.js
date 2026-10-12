@@ -86,7 +86,7 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   await login('admin', 'admin', s.temp);
   const fmUser = await both('saveUser', { UserID: 'fm01', Name: 'FM One', Role: 'Local', Team: 'FM', Email: 'fm01@company.com' }, 'admin');
   await login('fm', 'fm01', (side) => fmUser[side].data.tempPassword);
-  const vUser = await both('saveUser', { UserID: 'vm1', Name: 'Vendor', Role: 'Local', Team: 'RTG Vendor', Email: 'v@x.com' }, 'admin');
+  const vUser = await both('saveUser', { UserID: 'vm1', Name: 'Vendor', Role: 'Local', Team: 'RTG', Email: 'v@x.com' }, 'admin');
   await login('vendor', 'vm1', (side) => vUser[side].data.tempPassword);
   await both('me', {}, 'fm');
   await both('lookups', {}, 'fm');
