@@ -58,13 +58,13 @@ function isActive_(u) {
 }
 
 // Returns the logged-in user, or throws. Pass roles to restrict an action.
-function requireUser(token, roles) {
+function requireUser(token, roles, teams) {
   var cache = CacheService.getScriptCache();
   var userId = token && cache.get('sess:' + token);
   if (!userId) throw new AuthError('Session expired. Please log in again.');
   var u = findOne('Users', 'UserID', userId);
   if (!u || !isActive_(u)) throw new AuthError('Account disabled.');
-  if (roles && roles.indexOf(u.Role) < 0) throw new Error('You do not have permission for this.');
+  if (roles && roles.indexOf(u.Role) < 0 && !(teams && teams.indexOf(u.Team) >= 0)) throw new Error('You do not have permission for this.');
   cache.put('sess:' + token, userId, SESSION_SECONDS); // sliding expiry
   return u;
 }
