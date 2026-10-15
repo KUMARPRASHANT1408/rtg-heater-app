@@ -46,7 +46,7 @@ function app() {
     const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
     const det = ok('getRequest', { no: TicketNo }, admin);
     assert.strictEqual(det.suggestion.short.length, 0, JSON.stringify(det.suggestion.short));
-    ok('issueTicket', { TicketNo, items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, admin);
+    ok('issueTicket', { TicketNo, items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })), override: true, overrideReason: 'Test without the RTG Vendor check' }, admin);
     return TicketNo;
   };
   const stats = (w, r, p) => {

@@ -73,7 +73,7 @@ test('full lifecycle: approve, issue by component, partial return with issue, ov
 
   // Issue; a damaged part can't be issued.
   assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: [{ ComponentID: 'HM-01-S3-PB' }] }, admin).error, /different heater/);
-  ok('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, admin);
+  ok('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })), override: true, overrideReason: 'Test without the RTG Vendor check' }, admin);
   assert.match(call('issueTicket', { TicketNo: 'HEATER_0001', items: det.suggestion.picks }, admin).error, /already issued/);
   const s1 = ok('heaterSearch', { width: 1200, rating: 1250 }, admin);
   assert.strictEqual(s1.totals.suitableAvailable, 3);
@@ -141,7 +141,7 @@ test('issuing part of a lot splits it so the rest stays in store', () => {
   const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
   const pick = ok('getRequest', { no: TicketNo }, admin).suggestion.picks;
   assert.deepStrictEqual(pick.map((p) => [p.ComponentID, p.Qty]), [['HM-03-BOLTS', 4]]);
-  ok('issueTicket', { TicketNo, items: pick }, admin);
+  ok('issueTicket', { TicketNo, items: pick, override: true, overrideReason: 'Test without the RTG Vendor check' }, admin);
   const comps = ok('components', {}, admin).filter((c) => c.ComponentName === 'Spare bolts');
   assert.deepStrictEqual(comps.map((c) => [c.ComponentID, c.Qty, c.Status]), [['HM-03-BOLTS', 6, 'In store'], ['HM-03-BOLTS/' + TicketNo, 4, 'Issued']]);
 });
@@ -151,7 +151,7 @@ test('FM hands back, RTG inspects, FM explains, RTG closes', () => {
   const { RequestNo } = ok('raiseRequest', requestData(), fm);
   const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
   const picks = ok('getRequest', { no: TicketNo }, admin).suggestion.picks;
-  ok('issueTicket', { TicketNo, items: picks }, admin);
+  ok('issueTicket', { TicketNo, items: picks, override: true, overrideReason: 'Test without the RTG Vendor check' }, admin);
   const items = ok('getRequest', { no: TicketNo }, fm).items;
   // A vendor login (not FM, did not raise it) cannot hand it back.
   const vpw = ok('saveUser', { UserID: 'v1', Name: 'Vendor', Role: 'Local', Team: 'Vendor' }, admin).tempPassword;

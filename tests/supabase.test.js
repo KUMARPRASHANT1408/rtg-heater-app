@@ -101,7 +101,7 @@ test('Postgres server answers exactly like the Sheets version', { skip: !PGlite 
   await both('decideRequest', { RequestNo: 'RTGH0001', decision: 'approve' }, 'admin', (r) => assert.strictEqual(r.data.TicketNo, 'HEATER_0001'));
   const det = await both('getRequest', { no: 'HEATER_0001' }, 'admin');
   const picks = det.postgres.data.suggestion.picks;
-  await both('issueTicket', { TicketNo: 'HEATER_0001', items: picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })) }, 'admin');
+  await both('issueTicket', { TicketNo: 'HEATER_0001', items: picks.map((p) => ({ ComponentID: p.ComponentID, Qty: p.Qty })), override: true, overrideReason: 'Test without the RTG Vendor check' }, 'admin');
   await both('heaterSearch', { width: 1200, rating: 1250 }, 'fm', (r) => assert.match(r.error, /permission/));
   await both('heaterSearch', { width: 1200, rating: 1250 }, 'admin', (r) => assert.strictEqual(r.data.totals.suitableDeployed, 1));
   await both('dashboard', {}, 'admin');

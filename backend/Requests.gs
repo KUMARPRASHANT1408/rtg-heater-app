@@ -244,12 +244,29 @@ function issueTicket(admin, d) {
     }
     items.push({ TicketNo: tk.TicketNo, ComponentID: issuedId, ComponentName: c.ComponentName, SetNo: c.SetNo, QtyOut: qty, ConditionOut: c.Condition });
   });
+  // Every part needs the RTG Vendor's OK before it leaves the store. Only an admin may skip that, with a reason.
+  var unchecked = notCheckedOk_(tk.TicketNo, chosen.map(function (ch) { return ch.ComponentID; }));
+  var override = '';
+  if (unchecked.length) {
+    if (!d.override) throw new Error('The RTG Vendor has not passed these parts yet: ' + unchecked.map(function (u) { return u.id + ' (' + u.why + ')'; }).join(', ') + '.');
+    if (!isAdminUser_(admin)) throw new Error('Only an admin can issue without the RTG Vendor check.');
+    override = String(d.overrideReason || '').trim();
+    if (override.length < 10) throw new Error('Write why the heater must go without the RTG Vendor check (at least 10 characters).');
+  }
   updateMany('Components', 'ComponentID', patches);
   appendRows('Components', splits);
   appendRows('TicketItems', items);
-  updateWhere('Tickets', 'TicketNo', tk.TicketNo, { Status: TKT.ISSUED, IssuedBy: admin.UserID, IssuedOn: new Date() });
-  audit(admin.UserID, 'issueTicket', tk.TicketNo, { items: items.length });
+  var tpatch = { Status: TKT.ISSUED, IssuedBy: admin.UserID, IssuedOn: new Date() };
+  if (override) { tpatch.CheckOverrideBy = admin.UserID; tpatch.CheckOverrideReason = override; }
+  updateWhere('Tickets', 'TicketNo', tk.TicketNo, tpatch);
+  audit(admin.UserID, 'issueTicket', tk.TicketNo, { items: items.length, checkOverride: override ? unchecked.length : 0 });
   var r = findOne('Requests', 'RequestNo', tk.RequestNo);
+  if (override) {
+    queueMail('CHECK_OVERRIDE', tk.TicketNo, getSetting('RTGHODMail', '') || roleEmails_(['HOD']), getSetting('RTGTeamMail', ''),
+      'Heater issued without RTG Vendor check: ticket ' + tk.TicketNo,
+      mailHtml_('Ticket ' + tk.TicketNo + ' was issued without the RTG Vendor check', [['Issued by', admin.Name], ['Conveyor', tk.ConveyorName], ['Reason', override]]
+        .concat(unchecked.map(function (u) { return [u.id, u.why]; })), 'An admin skipped the RTG Vendor check for these parts.'));
+  }
   queueMail('HEATER_ISSUED', tk.TicketNo, contacts_(r), '', 'Heater issued on ticket ' + tk.TicketNo,
     mailHtml_('Heater issued on ticket ' + tk.TicketNo, [['Conveyor', tk.ConveyorName], ['Return by', tk.ExpectedReturnDate]].concat(itemsTable_(items)),
       'These components were handed over. All of them must come back to the RTG Store by the return date.'));

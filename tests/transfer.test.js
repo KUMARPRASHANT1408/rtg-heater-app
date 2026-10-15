@@ -22,7 +22,7 @@ function app() {
     IssueDate: '2026-10-10', ExpectedReturnDate: '2099-01-01', RequestedComponents: [{ name: 'Top platen', qty: 1 }, { name: 'Bottom platen', qty: 1 }]
   }, t.fm);
   const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve' }, admin);
-  ok('issueTicket', { TicketNo, items: ok('getRequest', { no: TicketNo }, admin).suggestion.picks }, admin);
+  ok('issueTicket', { TicketNo, items: ok('getRequest', { no: TicketNo }, admin).suggestion.picks, override: true, overrideReason: 'Test without the RTG Vendor check' }, admin);
   const notes = () => ctx.__mails.filter((m) => m.subject.startsWith('[RTG-NOTIFY]')).map((m) => JSON.parse(m.body));
   return { ctx, call, ok, t, TicketNo, notes };
 }

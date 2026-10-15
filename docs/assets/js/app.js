@@ -857,7 +857,7 @@
       (r.HeaterAsked ? field('Heater asked by FM', r.HeaterAsked) : '') + field('Vendor team', r.VendorTeam) + field('Vendor supervisor', r.VendorSupervisor) +
       field('Vendor employee ID', r.VendorEmployeeID) + field('FM representative', r.FMRepresentative) + field('Date of issue', r.IssueDate) +
       field('Expected return', tk ? tk.ExpectedReturnDate : r.ExpectedReturnDate) + field('Raised by', d.raisedByName) + field('Raised on', r.RaisedOn) +
-      (r.Status === 'Rejected' ? field('Reject reason', r.RejectReason) : '') + (tk && tk.IssuedOn ? field('Issued on', tk.IssuedOn) : '') +
+      (r.Status === 'Rejected' ? field('Reject reason', r.RejectReason) : '') + (tk && tk.IssuedOn ? field('Issued on', tk.IssuedOn) : '') + (tk && tk.CheckOverrideReason ? field('Issued without RTG Vendor check', tk.CheckOverrideReason) : '') +
       '</div></div>' +
       '<div class="card stack"><h2>' + (d.items.length ? 'Components on this ticket' : 'Components requested') + '</h2>' +
       (d.items.length ?
@@ -929,7 +929,7 @@
     var now = checkStage(d, status), checks = d.checks || [];
     if (!now && !checks.length) return '';
     var html = '<div class="card stack" style="margin-top:16px"><h2>RTG Vendor check</h2>' +
-      '<p class="muted small">The RTG Vendor checks every part before the store issues the heater, and again after FM hands it back. RTG sees the result when issuing and inspecting.</p>';
+      '<p class="muted small">The RTG Vendor checks every part before the store issues the heater, and again after FM hands it back. A part is issued only with the RTG Vendor\'s OK (an admin can skip this in an emergency, with a reason).</p>';
     if (now) {
       var last = (d.checkStatus && d.checkStatus[now.stage]) || {};
       html += '<form id="form-check" class="stack" data-stage="' + esc(now.stage) + '"><h3 style="margin:0">' + esc(now.stage) + '</h3>' +
@@ -1013,7 +1013,7 @@
       d.usable.forEach(function (c) { (usableByName[c.ComponentName] = usableByName[c.ComponentName] || []).push(c); });
       return '<div class="card stack" style="margin-top:16px"><h2>Issue at the store</h2>' +
         '<p class="muted small">Parts are suggested from one set where possible. Change any ID to match what you physically hand over.</p>' +
-        (hasCheck(d, 'Before issue') ? '' : '<div class="alert warn">The RTG Vendor has not checked this heater yet.</div>') +
+        '<div class="alert warn hidden" id="check-block">Some parts do not have the RTG Vendor\'s OK yet. Ask the RTG Vendor to check them' + (isAdmin() ? ', or issue without the check below.' : ', or ask an admin to issue without the check.') + '</div>' +
         (d.suggestion.short.length ? '<div class="alert error">Not enough in store: ' + d.suggestion.short.map(function (s) { return esc(s.name) + ' (short by ' + s.missing + ')'; }).join(', ') + '</div>' : '') +
         '<form id="form-issue" class="stack"><div class="table-wrap"><table><thead><tr><th style="width:40px"></th><th>Component</th><th>Component ID handed over</th><th class="num" style="width:110px">Qty</th></tr></thead><tbody>' +
         d.suggestion.picks.map(function (p, i) {
@@ -1023,6 +1023,8 @@
           return '<tr><td><input type="checkbox" checked data-pick="' + i + '" style="min-height:auto"></td><td>' + esc(p.ComponentName) + '</td><td><select data-id="' + i + '">' + opts + '</select><div data-cb="' + i + '">' + checkBadge(d, 'Before issue', p.ComponentID) + '</div></td>' +
             '<td class="num">' + (p.lot ? '<input type="number" min="1" value="' + p.Qty + '" data-qty="' + i + '" style="width:80px;text-align:right">' : '1') + '</td></tr>';
         }).join('') + '</tbody></table></div>' +
+        (isAdmin() ? '<div class="stack hidden" id="override-box"><label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="override" style="min-height:auto"> Issue without the RTG Vendor check (admin, emergency only)</label>' +
+          '<label>Reason (mailed to the RTG HOD)<textarea name="overrideReason" rows="2" placeholder="e.g. Breakdown on 02FW01A, RTG Vendor not on shift"></textarea></label></div>' : '') +
         '<div class="alert error hidden" id="issue-error"></div>' +
         '<div class="actions"><button class="btn" type="submit">Issue to FM team</button></div></form></div>';
     }
@@ -1088,9 +1090,25 @@
     });
     var issue = $('#form-issue');
     // Choosing another part shows that part's RTG Vendor check.
-    if (issue) issue.addEventListener('change', function (e) {
-      if (e.target.dataset.id !== undefined) $('[data-cb="' + e.target.dataset.id + '"]', issue).innerHTML = checkBadge(d, 'Before issue', e.target.value);
-    });
+    // Parts going out must have the RTG Vendor's OK; otherwise only an admin can issue, with a reason.
+    var checkGate = function () {
+      var st = (d.checkStatus && d.checkStatus['Before issue']) || {};
+      var missing = d.suggestion.picks.some(function (p, i) {
+        if (!$('[data-pick="' + i + '"]', issue).checked) return false;
+        var s = st[$('[data-id="' + i + '"]', issue).value];
+        return !(s && s.ok);
+      });
+      $('#check-block').classList.toggle('hidden', !missing);
+      if ($('#override-box')) $('#override-box').classList.toggle('hidden', !missing);
+      $('button[type=submit]', issue).disabled = missing && !(issue.override && issue.override.checked);
+    };
+    if (issue) {
+      issue.addEventListener('change', function (e) {
+        if (e.target.dataset.id !== undefined) $('[data-cb="' + e.target.dataset.id + '"]', issue).innerHTML = checkBadge(d, 'Before issue', e.target.value);
+        checkGate();
+      });
+      checkGate();
+    }
     if (issue) issue.addEventListener('submit', function (e) {
       e.preventDefault();
       var items = d.suggestion.picks.map(function (p, i) {
@@ -1100,7 +1118,8 @@
       }).filter(Boolean);
       var btn = $('button[type=submit]', issue);
       busy(btn, true);
-      API.call('issueTicket', { TicketNo: tk.TicketNo, items: items }).then(function () { reload('Issued ' + items.length + ' components'); })
+      var ov = issue.override && issue.override.checked && !$('#override-box').classList.contains('hidden');
+      API.call('issueTicket', { TicketNo: tk.TicketNo, items: items, override: ov, overrideReason: ov ? issue.overrideReason.value.trim() : '' }).then(function () { reload('Issued ' + items.length + ' components'); })
         .catch(function (err) { showError($('#issue-error'), err); busy(btn, false); });
     });
     var ret = $('#form-return');

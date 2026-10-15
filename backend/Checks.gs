@@ -1,6 +1,6 @@
 // The RTG Vendor checks a heater twice for every ticket: before the store issues it (after RTG approves the request),
-// and after FM hands it back. Each check lists the parts with OK / Not OK and a remark. RTG sees the result when it
-// issues the heater and when it inspects the return. A check never blocks the store; it is shown as a warning.
+// and after FM hands it back. Each check lists the parts with OK / Not OK and a remark. A part leaves the store only
+// with the RTG Vendor's OK; an admin may skip that with a reason, which is mailed to the RTG HOD.
 
 var CHECK_STAGE = { BEFORE: 'Before issue', AFTER: 'After return' };
 
@@ -35,6 +35,13 @@ function checkStatus_(checks) {
 // Parts back at the store (handed back by FM or already inspected) that have no after-return check yet.
 function returnedUnchecked_(items, checked) {
   return items.filter(function (i) { return (i.ReturnDeclaredOn || (i.ConditionIn && i.ConditionIn !== 'Missing')) && !checked[i.ComponentID]; });
+}
+
+// Parts that do not have an OK from the RTG Vendor's latest check before issue: [{id, why}].
+function notCheckedOk_(ticketNo, ids) {
+  var status = checkStatus_(parseChecks_(readTable('HeaterChecks').filter(function (c) { return c.TicketNo === ticketNo; })))[CHECK_STAGE.BEFORE];
+  return ids.filter(function (id) { return !(status[id] && status[id].ok); })
+    .map(function (id) { return { id: id, why: status[id] ? 'not OK: ' + status[id].remark : 'not checked' }; });
 }
 
 // For the requests list and the home page: which tickets wait for an RTG Vendor check.
