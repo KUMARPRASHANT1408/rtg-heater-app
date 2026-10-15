@@ -87,7 +87,7 @@ function resetAdminPassword() {
 // It keeps Users, Settings, HeaterModels, ComponentTypes, Components, Conveyors, Departments and Consumables.
 function clearTestData() {
   ['Requests', 'Tickets', 'TicketItems', 'Issues', 'TransferRequests', 'Approvals', 'ConsumableTransactions', 'ConsumableRequests',
-   'MaintenanceLogs', 'MailOutbox', 'AuditLog', 'Counters'].forEach(function (name) {
+   'MaintenanceLogs', 'HeaterChecks', 'MailOutbox', 'AuditLog', 'Counters'].forEach(function (name) {
     var sh = sheet_(name);
     if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
   });

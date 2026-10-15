@@ -128,3 +128,35 @@ test('RTG Vendor only logs heater maintenance; RTG, RTG Vendor and admins see th
   assert.strictEqual(typeof ok('dashboard', {}, t.rv).maintenanceDue, 'number');
   ok('verifyMaintenance', { LogNo, decision: 'approve' }, t.rtg);
 });
+
+test('RTG Vendor checks the heater before issue and after FM hands it back', () => {
+  const { call, ok, t, notes } = app();
+  const { RequestNo } = ok('raiseRequest', request(), t.fm);
+  const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve', ModelID: 'HM-02' }, t.rtg);
+  assert.ok(notes().some((n) => n.type === 'CHECK_BEFORE_ISSUE' && n.to === 'rv01@company.com'), 'the RTG Vendor is told to check it');
+  assert.strictEqual(ok('dashboard', {}, t.rv).checksBeforeIssue, 1);
+  assert.strictEqual(ok('listRequests', {}, t.rv)[0].CheckDue, 'Before issue');
+
+  const seen = ok('getRequest', { no: TicketNo }, t.rv);
+  assert.ok(seen.suggestion.picks.length, 'the RTG Vendor sees the parts to check');
+  assert.strictEqual(seen.usable, undefined, 'but not the stock list');
+  const picks = seen.suggestion.picks;
+  const before = (ok2) => picks.map((p, n) => ({ ComponentID: p.ComponentID, ok: ok2 || n > 0, remark: ok2 || n > 0 ? '' : 'cable cut' }));
+  assert.match(call('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: before() }, t.fm).error, /permission/);
+  assert.match(call('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: [{ ComponentID: picks[0].ComponentID, ok: false }] }, t.rv).error, /what is wrong/);
+  assert.match(call('saveHeaterCheck', { TicketNo, Stage: 'After return', items: before(true) }, t.rv).error, /come back/);
+  assert.strictEqual(ok('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: before() }, t.rv).Result, 'Not OK');
+  const forRtg = ok('getRequest', { no: TicketNo }, t.rtg);
+  assert.strictEqual(forRtg.checkStatus['Before issue'][picks[0].ComponentID].remark, 'cable cut');
+  assert.ok(notes().some((n) => n.type === 'HEATER_CHECK' && /Not OK/.test(n.subject)));
+  assert.strictEqual(ok('dashboard', {}, t.rv).checksBeforeIssue, 0);
+
+  ok('issueTicket', { TicketNo, items: picks }, t.rtg);
+  assert.match(call('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: before(true) }, t.rv).error, /already issued/);
+  ok('declareReturn', { TicketNo, ComponentIDs: picks.map((p) => p.ComponentID) }, t.fm);
+  assert.ok(notes().some((n) => n.type === 'RETURN_DECLARED' && n.cc.includes('rv01@company.com')));
+  assert.strictEqual(ok('listRequests', {}, t.rv)[0].CheckDue, 'After return');
+  assert.strictEqual(ok('saveHeaterCheck', { TicketNo, Stage: 'After return', items: before(true) }, t.rv).Result, 'OK');
+  assert.strictEqual(ok('listRequests', {}, t.rv)[0].CheckDue, '');
+  assert.strictEqual(ok('getRequest', { no: TicketNo }, t.rv).checks.length, 2);
+});

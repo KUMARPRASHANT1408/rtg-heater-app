@@ -178,6 +178,7 @@ details summary { cursor: pointer; color: var(--brand-2); font-size: .9rem; }
 .alert.error { background: var(--bad-soft); color: var(--bad); }
 .alert.ok { background: var(--good-soft); color: var(--good); }
 .alert.info { background: var(--brand-soft); color: var(--text); }
+.alert.warn { background: var(--warn-soft); color: var(--warn); }
 .demo-banner { background: var(--warn-soft); color: var(--warn); text-align: center; font-size: .85rem; padding: 6px 12px; }
 
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 10px 18px; border-radius: 10px; box-shadow: var(--shadow); z-index: 50; font-size: .92rem; }

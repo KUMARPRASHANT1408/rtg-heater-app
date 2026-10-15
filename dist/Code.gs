@@ -237,7 +237,7 @@ var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
 // RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
-// RTG Vendor: the store's maintenance contractor; only logs heater maintenance (RTG verifies it).
+// RTG Vendor: the store's maintenance contractor; checks heaters before issue and after return, and logs maintenance (RTG verifies it).
 var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
 
 // Who may do what. Admins may do everything.
@@ -328,6 +328,108 @@ function changePassword(user, oldPassword, newPassword) {
 }
 
 
+// ===== Checks.gs =====
+// The RTG Vendor checks a heater twice for every ticket: before the store issues it (after RTG approves the request),
+// and after FM hands it back. Each check lists the parts with OK / Not OK and a remark. RTG sees the result when it
+// issues the heater and when it inspects the return. A check never blocks the store; it is shown as a warning.
+
+var CHECK_STAGE = { BEFORE: 'Before issue', AFTER: 'After return' };
+
+function teamEmails_(team) {
+  return readTable('Users').filter(function (u) { return u.Team === team && isActive_(u) && u.Email; })
+    .map(function (u) { return u.Email; }).join(',');
+}
+
+function parseChecks_(rows) {
+  var users = {};
+  readTable('Users').forEach(function (u) { users[u.UserID] = u.Name; });
+  return rows.map(function (c) {
+    return { CheckNo: c.CheckNo, TicketNo: c.TicketNo, Stage: c.Stage, CheckedBy: users[c.CheckedBy] || c.CheckedBy, CheckedOn: c.CheckedOn,
+             Result: c.Result, Remarks: c.Remarks, items: parseList_(c.Items) };
+  });
+}
+
+// Latest result for each part at each stage: {stage: {ComponentID: {ok, remark, CheckNo, CheckedBy, CheckedOn}}}.
+function checkStatus_(checks) {
+  var out = {};
+  out[CHECK_STAGE.BEFORE] = {};
+  out[CHECK_STAGE.AFTER] = {};
+  checks.forEach(function (c) {
+    if (!out[c.Stage]) return;
+    c.items.forEach(function (i) {
+      out[c.Stage][i.ComponentID] = { ok: !!i.ok, remark: i.remark || '', CheckNo: c.CheckNo, CheckedBy: c.CheckedBy, CheckedOn: c.CheckedOn };
+    });
+  });
+  return out;
+}
+
+// Parts back at the store (handed back by FM or already inspected) that have no after-return check yet.
+function returnedUnchecked_(items, checked) {
+  return items.filter(function (i) { return (i.ReturnDeclaredOn || (i.ConditionIn && i.ConditionIn !== 'Missing')) && !checked[i.ComponentID]; });
+}
+
+// For the requests list and the home page: which tickets wait for an RTG Vendor check.
+function ticketsToCheck_() {
+  var checks = {}, items = {}, out = {};
+  readTable('HeaterChecks').forEach(function (c) { (checks[c.TicketNo] = checks[c.TicketNo] || []).push(c); });
+  readTable('TicketItems').forEach(function (i) { (items[i.TicketNo] = items[i.TicketNo] || []).push(i); });
+  readTable('Tickets').forEach(function (t) {
+    var mine = checks[t.TicketNo] || [];
+    if (t.Status === TKT.AWAITING) {
+      if (!mine.some(function (c) { return c.Stage === CHECK_STAGE.BEFORE; })) out[t.TicketNo] = CHECK_STAGE.BEFORE;
+      return;
+    }
+    var after = {};
+    mine.filter(function (c) { return c.Stage === CHECK_STAGE.AFTER; }).forEach(function (c) { parseList_(c.Items).forEach(function (i) { after[i.ComponentID] = true; }); });
+    if (returnedUnchecked_(items[t.TicketNo] || [], after).length) out[t.TicketNo] = CHECK_STAGE.AFTER;
+  });
+  return out;
+}
+
+// d: {TicketNo, Stage, items: [{ComponentID, ok, remark}], Remarks}
+function saveHeaterCheck(user, d) {
+  if (!canMaintain_(user)) throw new Error('You do not have permission for this.');
+  var tk = findOne('Tickets', 'TicketNo', d.TicketNo);
+  if (!tk) throw new Error('No such ticket.');
+  var stage = d.Stage, allowed = {};
+  if (stage === CHECK_STAGE.BEFORE) {
+    if (tk.Status !== TKT.AWAITING) throw new Error('This heater is already ' + String(tk.Status).toLowerCase() + '. The check before issue is done while it waits in the store.');
+    var r = findOne('Requests', 'RequestNo', tk.RequestNo) || {};
+    var from = partModels(readTable('HeaterModels'), r.ModelID || tk.ModelID);
+    readTable('Components').forEach(function (c) { if (from.indexOf(c.ModelID) >= 0 && c.Status === STATUS.IN_STORE) allowed[c.ComponentID] = c.ComponentName; });
+  } else if (stage === CHECK_STAGE.AFTER) {
+    readTable('TicketItems').forEach(function (i) {
+      if (i.TicketNo === tk.TicketNo && (i.ReturnDeclaredOn || (i.ConditionIn && i.ConditionIn !== 'Missing'))) allowed[i.ComponentID] = i.ComponentName;
+    });
+    if (!Object.keys(allowed).length) throw new Error('Nothing on this ticket has come back to the store yet.');
+  } else {
+    throw new Error('Unknown check.');
+  }
+  var items = [], seen = {}, bad = 0;
+  parseList_(d.items).forEach(function (i) {
+    var id = String(i.ComponentID || '');
+    if (!(id in allowed)) throw new Error(id + ' is not a part you can check on this ticket now.');
+    if (seen[id]) throw new Error(id + ' is listed twice.');
+    seen[id] = true;
+    var ok = i.ok === true || i.ok === 'true' || i.ok === 'OK', remark = String(i.remark || '').trim().slice(0, 500);
+    if (!ok && !remark) throw new Error('Write what is wrong with ' + id + '.');
+    if (!ok) bad++;
+    items.push({ ComponentID: id, ComponentName: allowed[id], ok: ok, remark: remark });
+  });
+  if (!items.length) throw new Error('Check at least one part.');
+  var no = nextNumber('check', 'VCK');
+  var result = bad ? 'Not OK' : 'OK';
+  appendRow('HeaterChecks', { CheckNo: no, TicketNo: tk.TicketNo, Stage: stage, CheckedBy: user.UserID, CheckedOn: new Date(), Result: result,
+                              Items: JSON.stringify(items), Remarks: String(d.Remarks || '').trim() });
+  audit(user.UserID, 'heaterCheck', tk.TicketNo, { stage: stage, parts: items.length, notOk: bad });
+  queueMail('HEATER_CHECK', no, getSetting('RTGTeamMail', ''), '', 'RTG Vendor check ' + stage.toLowerCase() + ' on ' + tk.TicketNo + ': ' + result,
+    mailHtml_('RTG Vendor checked ticket ' + tk.TicketNo + ' (' + stage.toLowerCase() + ')', [['Checked by', user.Name], ['Result', result], ['Remarks', d.Remarks || '']]
+      .concat(items.map(function (i) { return [i.ComponentID + ' ' + i.ComponentName, i.ok ? 'OK' : 'Not OK: ' + i.remark]; })),
+      bad ? 'Some parts are not OK. Please look at them before ' + (stage === CHECK_STAGE.BEFORE ? 'issuing the heater.' : 'closing the ticket.') : ''));
+  return { CheckNo: no, Result: result };
+}
+
+
 // ===== Code.gs =====
 // JSON API for the GitHub Pages front end.
 // The front end POSTs {action, token, data} as text/plain (avoids the CORS preflight Apps Script can't answer).
@@ -340,7 +442,7 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
 function RTG(u) { return isRtgTeam_(u); }
-// MAINT: the RTG team and the RTG Vendor (heater maintenance only).
+// MAINT: the RTG team and the RTG Vendor (heater checks and maintenance).
 function MAINT_(u) { return canMaintain_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
@@ -379,6 +481,7 @@ var ACTIONS = {
   issueConsumable:          { allow: RTG,   run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
+  saveHeaterCheck:          { roles: null,  run: function (u, d) { return saveHeaterCheck(u, d); } },
   listMaintenanceLogs:      { allow: MAINT_, run: function (u) { return listMaintenanceLogs(u); } },
   getChecklist:             { allow: MAINT_, run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
@@ -1616,7 +1719,7 @@ function listRequests() {
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; });
   var openIssues = {};
   readTable('Issues').forEach(function (i) { if (i.Status !== 'Closed') openIssues[i.TicketNo] = true; });
-  var t = today();
+  var t = today(), toCheck = ticketsToCheck_();
   return readTable('Requests').map(function (r) {
     var tk = r.TicketNo ? tickets[r.TicketNo] : null;
     var status = tk ? tk.Status : r.Status;
@@ -1624,7 +1727,8 @@ function listRequests() {
     return {
       RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID || '', Belt: beltText_(r), HeaterAsked: r.HeaterAsked || '', ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
       VendorTeam: r.VendorTeam, FMRepresentative: r.FMRepresentative, RaisedOn: r.RaisedOn, IssueDate: r.IssueDate, ExpectedReturnDate: expected,
-      Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo]
+      Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo],
+      CheckDue: (r.TicketNo && toCheck[r.TicketNo]) || ''
     };
   }).reverse();
 }
@@ -1644,6 +1748,10 @@ function getRequest(user, d) {
   var out = { request: r, ticket: tk, items: items, issues: issues, transfers: transfers, model: model, raisedByName: raiser ? raiser.Name : r.RaisedBy,
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
   out.belt = beltText_(r);
+  if (tk) {
+    out.checks = parseChecks_(readTable('HeaterChecks').filter(function (c) { return c.TicketNo === tk.TicketNo; }));
+    out.checkStatus = checkStatus_(out.checks);
+  }
   // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
   if (isRtgTeam_(user) && r.Status === REQ.PENDING) {
     var hd = heaterData_();
@@ -1655,10 +1763,11 @@ function getRequest(user, d) {
       return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
     }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
   }
-  if (isRtgTeam_(user) && tk && tk.Status === TKT.AWAITING) {
+  // The RTG Vendor checks the parts the store is about to give, so it sees the same suggestion (but not the stock list).
+  if (canMaintain_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
-    out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
+    if (isRtgTeam_(user)) out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
   }
   return out;
 }
@@ -1693,6 +1802,12 @@ function decideRequest(admin, d) {
   queueMail('REQUEST_APPROVED', r.RequestNo, contacts_(r), '', 'Heater request ' + r.RequestNo + ' approved: ticket ' + ticketNo,
     mailHtml_('Request ' + r.RequestNo + ' is approved. Your ticket number is ' + ticketNo, [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Expected return', r.ExpectedReturnDate]],
       'Bring this ticket number to the RTG Store to collect the heater.'));
+  var checkers = teamEmails_('RTG Vendor');
+  if (checkers) {
+    queueMail('CHECK_BEFORE_ISSUE', ticketNo, checkers, '', 'Please check heater ' + model.ModelName + ' before issue: ticket ' + ticketNo,
+      mailHtml_('Heater approved: please check it before issue', [['Ticket', ticketNo], ['Heater', model.ModelName], ['Conveyor', r.ConveyorName]],
+        'Open ticket ' + ticketNo + ' in the app, check each part and save the check before the store issues it.'));
+  }
   return { status: REQ.APPROVED, TicketNo: ticketNo };
 }
 
@@ -1840,7 +1955,7 @@ function declareReturn(user, d) {
   updateRows('TicketItems', function (o) { return o.TicketNo === tk.TicketNo && chosen[o.ComponentID] ? { ReturnDeclaredOn: now } : null; });
   updateWhere('Tickets', 'TicketNo', tk.TicketNo, { ReturnRequestedBy: user.UserID, ReturnRequestedOn: now, ReturnNote: d.note || '' });
   var left = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn && !i.ReturnDeclaredOn; }).length;
-  queueMail('RETURN_DECLARED', tk.TicketNo, getSetting('RTGTeamMail', ''), '', 'Heater returned on ticket ' + tk.TicketNo + ': please inspect',
+  queueMail('RETURN_DECLARED', tk.TicketNo, getSetting('RTGTeamMail', ''), teamEmails_('RTG Vendor'), 'Heater returned on ticket ' + tk.TicketNo + ': please inspect',
     mailHtml_('FM has returned heater parts on ticket ' + tk.TicketNo, [['Conveyor', tk.ConveyorName], ['Returned by', user.Name], ['Note', d.note || '']]
       .concat(itemsTable_(items)).concat(left ? [['Still on site', left + ' component(s)']] : []),
       'Please inspect the parts in the app and mark anything damaged or missing.'));
@@ -1939,6 +2054,8 @@ function dashboard(user) {
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
+    checksBeforeIssue: count(function (r) { return r.CheckDue === CHECK_STAGE.BEFORE; }),
+    checksAfterReturn: count(function (r) { return r.CheckDue === CHECK_STAGE.AFTER; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
     maintenanceDue: !(store || canMaintain_(user)) ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
     missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,
@@ -4266,6 +4383,16 @@ var SCHEMA = {
     "RTGRemark",
     "PartWork"
   ],
+  "HeaterChecks": [
+    "CheckNo",
+    "TicketNo",
+    "Stage",
+    "CheckedBy",
+    "CheckedOn",
+    "Result",
+    "Items",
+    "Remarks"
+  ],
   "Consumables": [
     "ItemID",
     "ItemName",
@@ -4429,7 +4556,7 @@ function resetAdminPassword() {
 // It keeps Users, Settings, HeaterModels, ComponentTypes, Components, Conveyors, Departments and Consumables.
 function clearTestData() {
   ['Requests', 'Tickets', 'TicketItems', 'Issues', 'TransferRequests', 'Approvals', 'ConsumableTransactions', 'ConsumableRequests',
-   'MaintenanceLogs', 'MailOutbox', 'AuditLog', 'Counters'].forEach(function (name) {
+   'MaintenanceLogs', 'HeaterChecks', 'MailOutbox', 'AuditLog', 'Counters'].forEach(function (name) {
     var sh = sheet_(name);
     if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
   });

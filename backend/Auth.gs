@@ -5,7 +5,7 @@ var MAX_FAILED_LOGINS = 5;
 var ROLES = ['Admin', 'Local', 'HOD', 'RTG Chief', 'FM Chief'];
 // FM: field maintenance, asks for heaters. Vendor: the jointing contractors, ask for consumables.
 // RTG: the store team; they see and keep the stock, approve, issue, maintain the heaters and take back.
-// RTG Vendor: the store's maintenance contractor; only logs heater maintenance (RTG verifies it).
+// RTG Vendor: the store's maintenance contractor; checks heaters before issue and after return, and logs maintenance (RTG verifies it).
 var TEAMS = ['FM', 'Vendor', 'RTG', 'RTG Vendor'];
 
 // Who may do what. Admins may do everything.

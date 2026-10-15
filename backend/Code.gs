@@ -9,7 +9,7 @@ var READ_ONLY = ['me', 'lookups', 'heaterSearch', 'components', 'listUsers', 'li
 // action -> { roles: roles allowed (null = any logged-in user), allow: extra check on the user, run: function(user, data) }
 // RTG: the RTG team and admins (stock, approvals, issue and return, maintenance).
 function RTG(u) { return isRtgTeam_(u); }
-// MAINT: the RTG team and the RTG Vendor (heater maintenance only).
+// MAINT: the RTG team and the RTG Vendor (heater checks and maintenance).
 function MAINT_(u) { return canMaintain_(u); }
 var ACTIONS = {
   me:             { roles: null,  run: function (u) { return { user: publicUser(u) }; } },
@@ -48,6 +48,7 @@ var ACTIONS = {
   issueConsumable:          { allow: RTG,   run: function (u, d) { return issueConsumable(u, d); } },
   maintenanceDue:           { roles: null,  run: function (u) { return maintenanceDue(u); } },
   logMaintenance:           { roles: null,  run: function (u, d) { return logMaintenance(u, d); } },
+  saveHeaterCheck:          { roles: null,  run: function (u, d) { return saveHeaterCheck(u, d); } },
   listMaintenanceLogs:      { allow: MAINT_, run: function (u) { return listMaintenanceLogs(u); } },
   getChecklist:             { allow: MAINT_, run: function (u, d) { return getChecklist(u, d); } },
   verifyMaintenance:        { allow: RTG,   run: function (u, d) { return verifyMaintenance(u, d); } },
