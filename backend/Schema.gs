@@ -108,7 +108,9 @@ var SCHEMA = {
     "LastOverdueMail",
     "ReturnRequestedBy",
     "ReturnRequestedOn",
-    "ReturnNote"
+    "ReturnNote",
+    "CheckOverrideBy",
+    "CheckOverrideReason"
   ],
   "TicketItems": [
     "TicketNo",

@@ -73,6 +73,7 @@ test('FM gives the belt details; the RTG team chooses the heater and issues it',
   assert.strictEqual(det.request.RequestedComponents.reduce((a, c) => a + c.qty, 0), 11, 'a full set is asked for');
   assert.strictEqual(det.suggestion.short.length, 0);
   assert.match(call('issueTicket', { TicketNo, items: det.suggestion.picks }, t.fm).error, /permission/);
+  ok('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: det.suggestion.picks.map((p) => ({ ComponentID: p.ComponentID, ok: true })) }, t.rv);
   ok('issueTicket', { TicketNo, items: det.suggestion.picks }, t.rtg);
   ok('declareReturn', { TicketNo, ComponentIDs: det.suggestion.picks.map((p) => p.ComponentID) }, t.fm);
   const items = ok('getRequest', { no: TicketNo }, t.rtg).items.map((i) => ({ ComponentID: i.ComponentID, result: 'OK' }));
@@ -151,12 +152,31 @@ test('RTG Vendor checks the heater before issue and after FM hands it back', () 
   assert.ok(notes().some((n) => n.type === 'HEATER_CHECK' && /Not OK/.test(n.subject)));
   assert.strictEqual(ok('dashboard', {}, t.rv).checksBeforeIssue, 0);
 
+  // Not OK or unchecked parts stay in the store; only an admin can skip the check, with a reason the RTG HOD gets.
+  assert.match(call('issueTicket', { TicketNo, items: picks }, t.rtg).error, /not passed these parts yet: \S+ \(not OK: cable cut\)/);
+  assert.match(call('issueTicket', { TicketNo, items: picks, override: true, overrideReason: 'urgent breakdown' }, t.rtg).error, /Only an admin/);
+  assert.match(call('issueTicket', { TicketNo, items: picks, override: true, overrideReason: 'urgent' }, t.admin).error, /why/);
+  ok('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: before(true) }, t.rv);
   ok('issueTicket', { TicketNo, items: picks }, t.rtg);
+  assert.ok(!notes().some((n) => n.type === 'CHECK_OVERRIDE'), 'checked parts need no override');
   assert.match(call('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: before(true) }, t.rv).error, /already issued/);
   ok('declareReturn', { TicketNo, ComponentIDs: picks.map((p) => p.ComponentID) }, t.fm);
   assert.ok(notes().some((n) => n.type === 'RETURN_DECLARED' && n.cc.includes('rv01@company.com')));
   assert.strictEqual(ok('listRequests', {}, t.rv)[0].CheckDue, 'After return');
   assert.strictEqual(ok('saveHeaterCheck', { TicketNo, Stage: 'After return', items: before(true) }, t.rv).Result, 'OK');
   assert.strictEqual(ok('listRequests', {}, t.rv)[0].CheckDue, '');
-  assert.strictEqual(ok('getRequest', { no: TicketNo }, t.rv).checks.length, 2);
+  assert.strictEqual(ok('getRequest', { no: TicketNo }, t.rv).checks.length, 3);
+});
+
+test('an admin can issue without the RTG Vendor check in an emergency, and the RTG HOD is told', () => {
+  const { ctx, ok, t, notes } = app();
+  ok('masterSave', { tab: 'Settings', rows: [{ Key: 'RTGHODMail', Value: 'rtghod@company.com' }] }, t.admin);
+  const { RequestNo } = ok('raiseRequest', request(), t.fm);
+  const { TicketNo } = ok('decideRequest', { RequestNo, decision: 'approve', ModelID: 'HM-02' }, t.rtg);
+  const picks = ok('getRequest', { no: TicketNo }, t.admin).suggestion.picks;
+  ok('issueTicket', { TicketNo, items: picks, override: true, overrideReason: 'Breakdown, RTG Vendor not on shift' }, t.admin);
+  const tk = ok('getRequest', { no: TicketNo }, t.rtg).ticket;
+  assert.strictEqual(tk.CheckOverrideReason, 'Breakdown, RTG Vendor not on shift');
+  const mail = notes().find((n) => n.type === 'CHECK_OVERRIDE');
+  assert.ok(mail && mail.to === 'rtghod@company.com', JSON.stringify(mail));
 });
