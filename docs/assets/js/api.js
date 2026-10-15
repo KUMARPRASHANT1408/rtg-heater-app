@@ -107,7 +107,7 @@
   // ---------- Demo backend ----------
   // Runs the real Apps Script backend code in this browser against fake Sheet services,
   // with the data kept in localStorage. Nothing leaves the browser.
-  var DEMO_KEY = 'rtg.demo.v10';
+  var DEMO_KEY = 'rtg.demo.v11';
   var backend = null;
 
   function demoBackend() {

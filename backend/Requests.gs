@@ -118,7 +118,7 @@ function listRequests() {
   readTable('HeaterModels').forEach(function (m) { models[m.ModelID] = m.ModelName; });
   var openIssues = {};
   readTable('Issues').forEach(function (i) { if (i.Status !== 'Closed') openIssues[i.TicketNo] = true; });
-  var t = today();
+  var t = today(), toCheck = ticketsToCheck_();
   return readTable('Requests').map(function (r) {
     var tk = r.TicketNo ? tickets[r.TicketNo] : null;
     var status = tk ? tk.Status : r.Status;
@@ -126,7 +126,8 @@ function listRequests() {
     return {
       RequestNo: r.RequestNo, TicketNo: r.TicketNo, ModelName: models[r.ModelID] || r.ModelID || '', Belt: beltText_(r), HeaterAsked: r.HeaterAsked || '', ConveyorName: tk ? tk.ConveyorName : r.ConveyorName,
       VendorTeam: r.VendorTeam, FMRepresentative: r.FMRepresentative, RaisedOn: r.RaisedOn, IssueDate: r.IssueDate, ExpectedReturnDate: expected,
-      Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo]
+      Status: status, Overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(expected, t), OpenIssue: !!openIssues[r.TicketNo],
+      CheckDue: (r.TicketNo && toCheck[r.TicketNo]) || ''
     };
   }).reverse();
 }
@@ -146,6 +147,10 @@ function getRequest(user, d) {
   var out = { request: r, ticket: tk, items: items, issues: issues, transfers: transfers, model: model, raisedByName: raiser ? raiser.Name : r.RaisedBy,
               overdue: !!tk && OPEN_TICKET.indexOf(tk.Status) >= 0 && isOverdue(tk.ExpectedReturnDate, today()) };
   out.belt = beltText_(r);
+  if (tk) {
+    out.checks = parseChecks_(readTable('HeaterChecks').filter(function (c) { return c.TicketNo === tk.TicketNo; }));
+    out.checkStatus = checkStatus_(out.checks);
+  }
   // The RTG team picks the heater: the suitable ones for this belt, with what is ready in the store.
   if (isRtgTeam_(user) && r.Status === REQ.PENDING) {
     var hd = heaterData_();
@@ -157,10 +162,11 @@ function getRequest(user, d) {
       return { ModelID: m.ModelID, ModelName: m.ModelName, suitable: !!x, availableSets: x ? x.availableSets : null, deployedCount: x ? x.deployedCount : null };
     }).sort(function (a, b) { return (b.suitable - a.suitable) || ((b.availableSets || 0) - (a.availableSets || 0)); });
   }
-  if (isRtgTeam_(user) && tk && tk.Status === TKT.AWAITING) {
+  // The RTG Vendor checks the parts the store is about to give, so it sees the same suggestion (but not the stock list).
+  if (canMaintain_(user) && tk && tk.Status === TKT.AWAITING) {
     var comps = readTable('Components'), from = partModels(readTable('HeaterModels'), r.ModelID);
     out.suggestion = pickComponents(comps, r.ModelID, r.RequestedComponents, from);
-    out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
+    if (isRtgTeam_(user)) out.usable = comps.filter(function (c) { return from.indexOf(c.ModelID) >= 0 && isUsable(c); });
   }
   return out;
 }
@@ -195,6 +201,12 @@ function decideRequest(admin, d) {
   queueMail('REQUEST_APPROVED', r.RequestNo, contacts_(r), '', 'Heater request ' + r.RequestNo + ' approved: ticket ' + ticketNo,
     mailHtml_('Request ' + r.RequestNo + ' is approved. Your ticket number is ' + ticketNo, [['Heater', model.ModelName], ['Conveyor', r.ConveyorName], ['Expected return', r.ExpectedReturnDate]],
       'Bring this ticket number to the RTG Store to collect the heater.'));
+  var checkers = teamEmails_('RTG Vendor');
+  if (checkers) {
+    queueMail('CHECK_BEFORE_ISSUE', ticketNo, checkers, '', 'Please check heater ' + model.ModelName + ' before issue: ticket ' + ticketNo,
+      mailHtml_('Heater approved: please check it before issue', [['Ticket', ticketNo], ['Heater', model.ModelName], ['Conveyor', r.ConveyorName]],
+        'Open ticket ' + ticketNo + ' in the app, check each part and save the check before the store issues it.'));
+  }
   return { status: REQ.APPROVED, TicketNo: ticketNo };
 }
 
@@ -342,7 +354,7 @@ function declareReturn(user, d) {
   updateRows('TicketItems', function (o) { return o.TicketNo === tk.TicketNo && chosen[o.ComponentID] ? { ReturnDeclaredOn: now } : null; });
   updateWhere('Tickets', 'TicketNo', tk.TicketNo, { ReturnRequestedBy: user.UserID, ReturnRequestedOn: now, ReturnNote: d.note || '' });
   var left = readTable('TicketItems').filter(function (i) { return i.TicketNo === tk.TicketNo && !i.ConditionIn && !i.ReturnDeclaredOn; }).length;
-  queueMail('RETURN_DECLARED', tk.TicketNo, getSetting('RTGTeamMail', ''), '', 'Heater returned on ticket ' + tk.TicketNo + ': please inspect',
+  queueMail('RETURN_DECLARED', tk.TicketNo, getSetting('RTGTeamMail', ''), teamEmails_('RTG Vendor'), 'Heater returned on ticket ' + tk.TicketNo + ': please inspect',
     mailHtml_('FM has returned heater parts on ticket ' + tk.TicketNo, [['Conveyor', tk.ConveyorName], ['Returned by', user.Name], ['Note', d.note || '']]
       .concat(itemsTable_(items)).concat(left ? [['Still on site', left + ' component(s)']] : []),
       'Please inspect the parts in the app and mark anything damaged or missing.'));
@@ -441,6 +453,8 @@ function dashboard(user) {
     awaiting: count(function (r) { return r.Status === TKT.AWAITING; }),
     onSite: count(function (r) { return OPEN_TICKET.indexOf(r.Status) >= 0 && r.Status !== TKT.ISSUE; }),
     overdue: count(function (r) { return r.Overdue; }),
+    checksBeforeIssue: count(function (r) { return r.CheckDue === CHECK_STAGE.BEFORE; }),
+    checksAfterReturn: count(function (r) { return r.CheckDue === CHECK_STAGE.AFTER; }),
     openIssues: readTable('Issues').filter(function (i) { return i.Status !== 'Closed'; }).length,
     maintenanceDue: !(store || canMaintain_(user)) ? 0 : comps.filter(function (c) { return c.Status === STATUS.IN_STORE && c.MaintenanceStatus === MAINT.DUE; }).length,
     missing: !store ? 0 : comps.filter(function (c) { return c.Status === STATUS.MISSING; }).length,

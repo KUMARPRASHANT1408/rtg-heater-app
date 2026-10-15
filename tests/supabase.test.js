@@ -242,3 +242,23 @@ test('a new copy of the function does not run the table setup again (it deadlock
   assert.strictEqual(ddl, 1);
   await pg.close();
 });
+
+test('a newer app version adds a whole new tab by itself', { skip: !PGlite && 'npm install first (PGlite)' }, async () => {
+  const s = seed();
+  s.order = s.order.filter((n) => n !== 'HeaterChecks'); // an "old" database from before the RTG Vendor checks
+  delete s.tabs.HeaterChecks;
+  const { server, pg } = await pgServer();
+  await server.handle({ action: 'relayRegister', key: KEY });
+  await server.handle({ action: 'relayImport', key: KEY, data: { order: s.order, tabs: s.tabs } });
+  const admin = (await server.handle({ action: 'login', data: { userId: 'admin', password: s.temp } })).data.token;
+  const go = async (action, data) => { const r = await server.handle({ action, data, token: admin }); assert.ok(r.ok, action + ': ' + r.error); return r.data; };
+  const { RequestNo } = await go('raiseRequest', { ModelID: 'HM-01', ConveyorName: 'SAMPLE CNV-101', VendorTeam: 'A', VendorSupervisor: 'B', VendorEmployeeID: 'V1',
+    FMRepresentative: 'C', FMEmail: 'c@x.com', IssueDate: '2026-10-10', ExpectedReturnDate: '2026-10-12', RequestedComponents: [{ name: 'Top platen', qty: 1 }] });
+  const { TicketNo } = await go('decideRequest', { RequestNo, decision: 'approve' });
+  const pick = (await go('getRequest', { no: TicketNo })).suggestion.picks[0];
+  await go('saveHeaterCheck', { TicketNo, Stage: 'Before issue', items: [{ ComponentID: pick.ComponentID, ok: true }] });
+  const exp = (await server.handle({ action: 'relayExport', key: KEY })).data;
+  assert.deepStrictEqual(exp.tabs.HeaterChecks[0], s.ctx.SCHEMA.HeaterChecks);
+  assert.strictEqual(exp.tabs.HeaterChecks.length, 2);
+  await pg.close();
+});

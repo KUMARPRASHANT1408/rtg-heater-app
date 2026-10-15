@@ -179,6 +179,16 @@ var SCHEMA = {
     "RTGRemark",
     "PartWork"
   ],
+  "HeaterChecks": [
+    "CheckNo",
+    "TicketNo",
+    "Stage",
+    "CheckedBy",
+    "CheckedOn",
+    "Result",
+    "Items",
+    "Remarks"
+  ],
   "Consumables": [
     "ItemID",
     "ItemName",

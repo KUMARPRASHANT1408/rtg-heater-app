@@ -16,7 +16,7 @@
   // approvals, issue and return, maintenance. Admins also get the admin pages.
   function team() { return (state.user && state.user.Team) || ''; }
   function isRtgTeam() { return isAdmin() || team() === 'RTG'; }
-  // RTG Vendor: the store's maintenance contractor; logs heater maintenance only.
+  // RTG Vendor: the store's maintenance contractor; checks heaters before issue and after return, and logs maintenance.
   function canMaintain() { return isRtgTeam() || team() === 'RTG Vendor'; }
   function toast(msg) {
     var t = document.createElement('div');
@@ -61,7 +61,7 @@
   // Pages for people outside the store. The RTG team has every page but the admin ones.
   var FM_PAGES = ['#/home', '#/heaters', '#/requests', '#/request', '#/ticket', '#/transfers'];
   var VENDOR_PAGES = ['#/home', '#/consumables'];
-  var MAINT_PAGES = ['#/home', '#/maintenance'];
+  var MAINT_PAGES = ['#/home', '#/maintenance', '#/requests', '#/ticket'];
   function allowedPage(hash) {
     if (isRtgTeam()) return ADMIN_ROUTES.indexOf(hash) < 0 || isAdmin();
     return (team() === 'Vendor' ? VENDOR_PAGES : team() === 'RTG Vendor' ? MAINT_PAGES : FM_PAGES).indexOf(hash) >= 0;
@@ -188,7 +188,9 @@
         return '<a class="card stat tile" href="#/requests?f=' + f + '"><div class="label">' + esc(label) + '</div><div class="value"' + (tone && v ? ' style="color:var(--' + tone + ')"' : '') + '>' + v + '</div></a>';
       }
       var mine = d.transfersForMe ? '<a class="card stat tile accent" href="#/transfers?f=mine"><div class="label">Transfers waiting for you</div><div class="value" style="color:var(--warn)">' + d.transfersForMe + '</div></a>' : '';
-      var heaterStats = team() === 'RTG Vendor' ? '<a class="card stat tile" href="#/maintenance?f=log"><div class="label">Parts due after a joint</div><div class="value" style="color:var(--warn)">' + d.maintenanceDue + '</div></a>' +
+      var heaterStats = team() === 'RTG Vendor' ? '<a class="card stat tile" href="#/requests?f=check"><div class="label">Heaters to check before issue</div><div class="value" style="color:var(--warn)">' + d.checksBeforeIssue + '</div></a>' +
+        '<a class="card stat tile" href="#/requests?f=check"><div class="label">Returned heaters to check</div><div class="value" style="color:var(--warn)">' + d.checksAfterReturn + '</div></a>' +
+        '<a class="card stat tile" href="#/maintenance?f=log"><div class="label">Parts due after a joint</div><div class="value" style="color:var(--warn)">' + d.maintenanceDue + '</div></a>' +
         '<a class="card stat tile" href="#/maintenance?f=verify"><div class="label">Logs waiting for RTG check</div><div class="value">' + d.maintenanceToVerify + '</div></a>'
         : team() === 'Vendor' ? '' : t('Pending approval', d.pending, 'Pending', 'warn') + t('Awaiting pickup', d.awaiting, 'Awaiting pickup') + t('Heaters on site', d.onSite, 'onsite') +
         t('Overdue', d.overdue, 'overdue', 'bad') + t('Open issues', d.openIssues, 'issue', 'bad');
@@ -769,15 +771,18 @@
     { key: 'onsite', label: 'On site', fn: function (r) { return ['Issued', 'Partly returned'].indexOf(r.Status) >= 0; } },
     { key: 'overdue', label: 'Overdue', fn: function (r) { return r.Overdue; } },
     { key: 'issue', label: 'With issue', fn: function (r) { return r.Status === 'Returned with issue' || r.OpenIssue; } },
+    { key: 'check', label: 'Waiting for RTG Vendor check', fn: function (r) { return !!r.CheckDue; } },
     { key: 'Closed', label: 'Closed' },
     { key: 'Rejected', label: 'Rejected' },
     { key: 'all', label: 'All', fn: function () { return true; } }
   ];
 
   function renderRequests(arg, params) {
-    var active = params.f || 'open';
+    var checker = team() === 'RTG Vendor';
+    var active = params.f || (checker ? 'check' : 'open');
+    var newBtn = checker ? '' : '<a class="btn" href="#/heaters">+ New request</a>';
     view.innerHTML = '<div class="page-head"><div><h1>Requests &amp; tickets</h1><p class="muted">Every heater request, its ticket and where it stands.</p></div>' +
-      '<a class="btn" href="#/heaters">+ New request</a></div><p class="muted">Loading…</p>';
+      newBtn + '</div><p class="muted">Loading…</p>';
     Promise.all([API.call('listRequests'), API.call('dashboard')]).then(function (res) {
       var list = res[0], dash = res[1];
       function tile(label, value, f, tone) {
@@ -786,10 +791,11 @@
       var filter = FILTERS.filter(function (f) { return f.key === active; })[0] || FILTERS[0];
       var rows = list.filter(filter.fn || function (r) { return r.Status === filter.key; });
       view.innerHTML =
-        '<div class="page-head"><div><h1>Requests &amp; tickets</h1><p class="muted">Every heater request, its ticket and where it stands.</p></div><a class="btn" href="#/heaters">+ New request</a></div>' +
+        '<div class="page-head"><div><h1>Requests &amp; tickets</h1><p class="muted">Every heater request, its ticket and where it stands.</p></div>' + newBtn + '</div>' +
         '<div class="grid grid-5" style="margin-bottom:16px">' +
-        tile('Pending approval', dash.pending, 'Pending', 'warn') + tile('Awaiting pickup', dash.awaiting, 'Awaiting pickup') +
-        tile('On site', dash.onSite, 'onsite') + tile('Overdue', dash.overdue, 'overdue', 'bad') + tile('Open issues', dash.openIssues, 'issue', 'bad') + '</div>' +
+        (checker ? tile('To check before issue', dash.checksBeforeIssue, 'check', 'warn') + tile('Returned, to check', dash.checksAfterReturn, 'check', 'warn') + tile('Awaiting pickup', dash.awaiting, 'Awaiting pickup') + tile('On site', dash.onSite, 'onsite')
+          : tile('Pending approval', dash.pending, 'Pending', 'warn') + tile('Awaiting pickup', dash.awaiting, 'Awaiting pickup') +
+        tile('On site', dash.onSite, 'onsite') + tile('Overdue', dash.overdue, 'overdue', 'bad') + tile('Open issues', dash.openIssues, 'issue', 'bad')) + '</div>' +
         '<div class="card"><form id="form-find" class="row" style="margin-bottom:14px">' +
         '<label>Search request or ticket number<input name="no" placeholder="RTGH0001 or HEATER_0001" required></label>' +
         '<div><button class="btn" type="submit">Open</button></div>' +
@@ -797,7 +803,7 @@
         '<div class="table-wrap"><table><thead><tr><th>Request</th><th>Ticket</th><th>Heater</th><th>Conveyor</th><th>Vendor team</th><th>Return by</th><th>Status</th></tr></thead><tbody>' +
         (rows.map(function (r) {
           return '<tr class="click" data-no="' + esc(r.RequestNo) + '"><td><b>' + esc(r.RequestNo) + '</b><div class="small muted">' + esc(r.RaisedOn) + '</div></td><td>' + esc(r.TicketNo || '—') + '</td><td>' + (r.ModelName ? esc(r.ModelName) : '<span class="muted">' + esc(r.HeaterAsked ? r.HeaterAsked + ' (asked)' : 'RTG to choose') + '</span>') + (r.Belt ? '<div class="small muted">' + esc(r.Belt) + '</div>' : '') +
-            '</td><td>' + esc(r.ConveyorName) + '</td><td>' + esc(r.VendorTeam) + '<div class="small muted">' + esc(r.FMRepresentative) + '</div></td><td>' + esc(r.ExpectedReturnDate) + '</td><td>' + statusPill(r.Status, r.Overdue) + '</td></tr>';
+            '</td><td>' + esc(r.ConveyorName) + '</td><td>' + esc(r.VendorTeam) + '<div class="small muted">' + esc(r.FMRepresentative) + '</div></td><td>' + esc(r.ExpectedReturnDate) + '</td><td>' + statusPill(r.Status, r.Overdue) + (r.CheckDue ? '<div class="small" style="color:var(--warn)">RTG Vendor check ' + esc(r.CheckDue.toLowerCase()) + '</div>' : '') + '</td></tr>';
         }).join('') || '<tr><td colspan="7" class="muted">Nothing here.</td></tr>') +
         '</tbody></table></div></div>';
       $('#f-filter').addEventListener('change', function () { location.hash = '#/requests?f=' + encodeURIComponent(this.value); });
@@ -893,11 +899,77 @@
     }
 
     html += transferSection(d, status);
+    html += checkPanel(d, status);
     if (isRtgTeam()) html += adminPanel(d, status, outstanding);
     else html += fmReturnPanel(d, status, outstanding);
     view.innerHTML = html;
     wireTicket(d, outstanding);
+    wireCheck(d);
     wireTransferSection(d, function (msg) { if (msg) toast(msg); renderTicket(d.ticket.TicketNo); });
+  }
+
+  // ---------- RTG Vendor checks: before issue and after return ----------
+  function hasCheck(d, stage) { return (d.checks || []).some(function (c) { return c.Stage === stage; }); }
+  function checkBadge(d, stage, id) {
+    var s = d.checkStatus && d.checkStatus[stage] && d.checkStatus[stage][id];
+    if (!s) return hasCheck(d, stage) ? '<div class="small muted">Not in the RTG Vendor check</div>' : '';
+    return s.ok ? '<div class="small" style="color:var(--good)">RTG Vendor: OK</div>' : '<div class="small" style="color:var(--bad)">RTG Vendor: not OK, ' + esc(s.remark) + '</div>';
+  }
+  // The parts that can be checked now, or null.
+  function checkStage(d, status) {
+    if (!canMaintain() || !d.ticket) return null;
+    if (status === 'Awaiting pickup' && d.suggestion) {
+      return { stage: 'Before issue', parts: d.suggestion.picks.map(function (p) { return { ComponentID: p.ComponentID, ComponentName: p.ComponentName, Qty: p.Qty }; }) };
+    }
+    var back = d.items.filter(function (i) { return i.ReturnDeclaredOn || (i.ConditionIn && i.ConditionIn !== 'Missing'); });
+    return back.length ? { stage: 'After return', parts: back.map(function (i) { return { ComponentID: i.ComponentID, ComponentName: i.ComponentName, Qty: i.QtyOut }; }) } : null;
+  }
+  function checkPanel(d, status) {
+    if (!canMaintain() || !d.ticket) return '';
+    var now = checkStage(d, status), checks = d.checks || [];
+    if (!now && !checks.length) return '';
+    var html = '<div class="card stack" style="margin-top:16px"><h2>RTG Vendor check</h2>' +
+      '<p class="muted small">The RTG Vendor checks every part before the store issues the heater, and again after FM hands it back. RTG sees the result when issuing and inspecting.</p>';
+    if (now) {
+      var last = (d.checkStatus && d.checkStatus[now.stage]) || {};
+      html += '<form id="form-check" class="stack" data-stage="' + esc(now.stage) + '"><h3 style="margin:0">' + esc(now.stage) + '</h3>' +
+        '<div class="table-wrap"><table><thead><tr><th>Component ID</th><th>Component</th><th>Result</th><th>What is wrong / remark</th></tr></thead><tbody>' +
+        now.parts.map(function (p, n) {
+          var prev = last[p.ComponentID];
+          return '<tr><td><b>' + esc(p.ComponentID) + '</b></td><td>' + esc(p.ComponentName) + (Number(p.Qty) > 1 ? ' x' + esc(p.Qty) : '') + '</td>' +
+            '<td><select data-ck="' + n + '"><option value="ok">OK</option><option value="bad"' + (prev && !prev.ok ? ' selected' : '') + '>Not OK</option></select></td>' +
+            '<td><input data-ckrem="' + n + '" maxlength="500" value="' + esc(prev ? prev.remark : '') + '" placeholder="Needed if not OK"></td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<label>General remark (optional)<input name="Remarks"></label>' +
+        '<div class="alert error hidden" id="check-error"></div>' +
+        '<div class="actions"><button class="btn" type="submit">Save check' + (hasCheck(d, now.stage) ? ' again' : '') + '</button></div></form>';
+    }
+    if (checks.length) {
+      html += '<div class="stack">' + checks.slice().reverse().map(function (c) {
+        var bad = c.items.filter(function (i) { return !i.ok; });
+        return '<div class="issue"><div class="model-head"><b>' + esc(c.CheckNo) + ' · ' + esc(c.Stage) + '</b><span class="pill ' + (c.Result === 'OK' ? 'good' : 'bad') + '">' + esc(c.Result) + '</span></div>' +
+          '<div class="small muted">' + esc(c.CheckedBy) + ', ' + esc(c.CheckedOn) + ' · ' + c.items.length + ' part(s)</div>' +
+          (bad.length ? '<p class="small">' + bad.map(function (i) { return '<b>' + esc(i.ComponentID) + '</b> ' + esc(i.remark); }).join(' · ') + '</p>' : '') +
+          (c.Remarks ? '<p class="small">' + esc(c.Remarks) + '</p>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+    return html + '</div>';
+  }
+  function wireCheck(d) {
+    var f = $('#form-check');
+    if (!f) return;
+    var now = checkStage(d, d.ticket.Status);
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var items = now.parts.map(function (p, n) {
+        return { ComponentID: p.ComponentID, ok: $('[data-ck="' + n + '"]', f).value === 'ok', remark: $('[data-ckrem="' + n + '"]', f).value.trim() };
+      });
+      var btn = $('button[type=submit]', f);
+      busy(btn, true);
+      API.call('saveHeaterCheck', { TicketNo: d.ticket.TicketNo, Stage: f.dataset.stage, items: items, Remarks: f.Remarks.value.trim() })
+        .then(function (r) { toast('Check ' + r.CheckNo + ' saved: ' + r.Result); renderTicket(d.ticket.TicketNo); })
+        .catch(function (err) { showError($('#check-error'), err); busy(btn, false); });
+    });
   }
 
   function fmCanAct(d) {
@@ -941,13 +1013,14 @@
       d.usable.forEach(function (c) { (usableByName[c.ComponentName] = usableByName[c.ComponentName] || []).push(c); });
       return '<div class="card stack" style="margin-top:16px"><h2>Issue at the store</h2>' +
         '<p class="muted small">Parts are suggested from one set where possible. Change any ID to match what you physically hand over.</p>' +
+        (hasCheck(d, 'Before issue') ? '' : '<div class="alert warn">The RTG Vendor has not checked this heater yet.</div>') +
         (d.suggestion.short.length ? '<div class="alert error">Not enough in store: ' + d.suggestion.short.map(function (s) { return esc(s.name) + ' (short by ' + s.missing + ')'; }).join(', ') + '</div>' : '') +
         '<form id="form-issue" class="stack"><div class="table-wrap"><table><thead><tr><th style="width:40px"></th><th>Component</th><th>Component ID handed over</th><th class="num" style="width:110px">Qty</th></tr></thead><tbody>' +
         d.suggestion.picks.map(function (p, i) {
           var opts = (usableByName[p.ComponentName] || []).map(function (c) {
             return '<option value="' + esc(c.ComponentID) + '"' + (c.ComponentID === p.ComponentID ? ' selected' : '') + '>' + esc(c.ComponentID) + (Number(c.Qty) > 1 ? ' (' + c.Qty + ' in lot)' : '') + '</option>';
           }).join('');
-          return '<tr><td><input type="checkbox" checked data-pick="' + i + '" style="min-height:auto"></td><td>' + esc(p.ComponentName) + '</td><td><select data-id="' + i + '">' + opts + '</select></td>' +
+          return '<tr><td><input type="checkbox" checked data-pick="' + i + '" style="min-height:auto"></td><td>' + esc(p.ComponentName) + '</td><td><select data-id="' + i + '">' + opts + '</select><div data-cb="' + i + '">' + checkBadge(d, 'Before issue', p.ComponentID) + '</div></td>' +
             '<td class="num">' + (p.lot ? '<input type="number" min="1" value="' + p.Qty + '" data-qty="' + i + '" style="width:80px;text-align:right">' : '1') + '</td></tr>';
         }).join('') + '</tbody></table></div>' +
         '<div class="alert error hidden" id="issue-error"></div>' +
@@ -961,7 +1034,7 @@
         outstanding.map(function (i, n) {
           return '<tr><td><b>' + esc(i.ComponentID) + '</b></td><td>' + esc(i.ComponentName) + (Number(i.QtyOut) > 1 ? ' x' + esc(i.QtyOut) : '') + '</td><td><select data-res="' + n + '">' +
             ['Not returned', 'OK', 'Damaged', 'Missing'].map(function (o) { return '<option' + (i.ReturnDeclaredOn && o === 'OK' ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>' +
-            (i.ReturnDeclaredOn ? '<div class="small muted">FM handed back ' + esc(String(i.ReturnDeclaredOn).slice(0, 10)) + '</div>' : '') + '</td>' +
+            (i.ReturnDeclaredOn ? '<div class="small muted">FM handed back ' + esc(String(i.ReturnDeclaredOn).slice(0, 10)) + '</div>' : '') + checkBadge(d, 'After return', i.ComponentID) + '</td>' +
             '<td><textarea data-rem="' + n + '" rows="1" placeholder="Optional">' + esc(i.Remarks || '') + '</textarea></td></tr>';
         }).join('') + '</tbody></table></div>' +
         '<label id="issue-box" class="hidden">Describe the damage / missing parts (mailed to the FM team asking for an explanation)<textarea name="issueText" rows="3"></textarea></label>' +
@@ -1014,6 +1087,10 @@
       }).catch(function (err) { showError($('#decide-error'), err); busy(b, false); });
     });
     var issue = $('#form-issue');
+    // Choosing another part shows that part's RTG Vendor check.
+    if (issue) issue.addEventListener('change', function (e) {
+      if (e.target.dataset.id !== undefined) $('[data-cb="' + e.target.dataset.id + '"]', issue).innerHTML = checkBadge(d, 'Before issue', e.target.value);
+    });
     if (issue) issue.addEventListener('submit', function (e) {
       e.preventDefault();
       var items = d.suggestion.picks.map(function (p, i) {
@@ -1123,7 +1200,7 @@
 
   function transferSection(d, status) {
     var pending = d.transfers.some(function (t) { return t.waitingWith.length; });
-    var canMove = ['Issued', 'Partly returned'].indexOf(status) >= 0 && !pending;
+    var canMove = ['Issued', 'Partly returned'].indexOf(status) >= 0 && !pending && team() !== 'RTG Vendor';
     if (!d.transfers.length && !canMove) return '';
     var conv = (state.lookups && state.lookups.conveyors) || [];
     return '<div class="stack" style="margin-top:16px"><div class="model-head"><h2 style="margin:0">Site transfers</h2>' +
